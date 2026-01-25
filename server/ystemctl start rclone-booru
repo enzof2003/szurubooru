@@ -1,0 +1,12 @@
+○ rclone-booru.service - Rclone mount for szurubooru posts
+     Loaded: loaded (]8;;file://vmi2983406/etc/systemd/system/rclone-booru.service/etc/systemd/system/rclone-booru.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: inactive (dead) since Sat 2026-01-24 07:20:32 CET; 2min 32s ago
+   Duration: 6min 7.022s
+    Process: 10649 ExecStart=/usr/bin/rclone mount b2booru:tengu-posts /var/local/szurubooru/data/posts --vfs-cache-mode full --vfs-cache-max-size 50G --vfs-cache-max-age 24h --dir-cache-time 60s --poll-interval 0 --b2-hard-delete --transfers 4 --checkers 8 --buffer-size 32M (code=exited, status=0/SUCCESS)
+   Main PID: 10649 (code=exited, status=0/SUCCESS)
+     Status: "[0;1;36m[07:20] vfs cache: objects 0 (was 0) in use 0, to upload 0, uploading 0, total size 0 (was 0)[0m"
+        CPU: 370ms
+
+Jan 24 07:14:24 vmi2983406 systemd[1]: Starting rclone-booru.service - Rclone mount for szurubooru posts...
+Jan 24 07:14:25 vmi2983406 systemd[1]: Started rclone-booru.service - Rclone mount for szurubooru posts.
+Jan 24 07:20:32 vmi2983406 systemd[1]: rclone-booru.service: Deactivated successfully.

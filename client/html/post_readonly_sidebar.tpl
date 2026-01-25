@@ -84,29 +84,83 @@
     <% } %>
 
     <nav class='tags'>
-        <h1>Tags (<%- ctx.post.tags.length %>)</h1>
+        <h1 class="tags-heading">Tags (<%- ctx.post.tags.length %>)</h1>
+
         <% if (ctx.post.tags.length) { %>
-            <ul class='compact-tags'><!--
-                --><% for (let tag of ctx.post.tags) { %><!--
-                    --><li><!--
-                        --><% if (ctx.canViewTags) { %><!--
-                        --><a href='<%- ctx.formatClientLink('tag', tag.names[0]) %>' class='<%= ctx.makeCssName(tag.category, 'tag') %>'><!--
-                            --><i class='fa fa-tag'></i><!--
+            <%
+                // Desired display order (keeps your original ordering)
+                const CATEGORY_ORDER = ['artist','serie','sub-serie','character','general','type'];
+
+                // Map numeric category ids to names. Update numbers to match your backend if needed.
+                const CATEGORY_MAP = {
+                    0: 'general',
+                    1: 'artist',
+                    2: 'serie',
+                    3: 'character',
+                    4: 'type',
+                    5: 'sub-serie'
+                };
+
+                function normalizeCategoryName(tag) {
+                    if (tag && tag.categoryName && typeof tag.categoryName === 'string' && tag.categoryName.trim() !== '') {
+                        return tag.categoryName.toLowerCase();
+                    }
+                    if (tag && typeof tag.category === 'number') {
+                        if (CATEGORY_MAP.hasOwnProperty(tag.category)) {
+                            return String(CATEGORY_MAP[tag.category]).toLowerCase();
+                        }
+                        return 'unknown-' + String(tag.category);
+                    }
+                    if (tag && typeof tag.category === 'string' && tag.category.trim() !== '') {
+                        return tag.category.toLowerCase();
+                    }
+                    return 'general';
+                }
+
+                // Group tags by normalized category name
+                const groups = {};
+                for (let tag of ctx.post.tags) {
+                    const name = normalizeCategoryName(tag);
+                    if (!groups[name]) groups[name] = [];
+                    groups[name].push(tag);
+                }
+
+                // Build ordered list: categories in CATEGORY_ORDER first, then remaining alphabetical
+                const ordered = [];
+                for (let n of CATEGORY_ORDER) {
+                    if (groups[n]) ordered.push(n);
+                }
+                const remaining = Object.keys(groups).filter(n => !CATEGORY_ORDER.includes(n)).sort();
+                for (let r of remaining) ordered.push(r);
+            %>
+
+            <% for (let catName of ordered) { %>
+                <section class='tag-category tag-category-<%- catName.replace(/\s+/g,'-') %>'>
+                    <h3 class="tag-category-heading"><%- catName.charAt(0).toUpperCase() + catName.slice(1) %></h3>
+                    <ul class='compact-tags'><!--
+                        --><% for (let tag of groups[catName]) { %><!--
+                            --><li><!--
+                                --><% if (ctx.canViewTags) { %><!--
+                                --><a href='<%- ctx.formatClientLink('tag', tag.names[0]) %>' class='<%= ctx.makeCssName(tag.category, 'tag') %>'><!--
+                                    --><i class='fa fa-tag'></i><!--
+                                --><% } %><!--
+                                --><% if (ctx.canViewTags) { %><!--
+                                    --></a><!--
+                                --><% } %><!--
+                                --><% if (ctx.canListPosts) { %><!--
+                                    --><a href='<%- ctx.formatClientLink('posts', {query: ctx.escapeTagName(tag.names[0])}) %>' class='<%= ctx.makeCssName(tag.category, 'tag') %>'><!--
+                                --><% } %><!--
+                                    --><%- ctx.getPrettyName(tag.names[0]) %><!--
+                                --><% if (ctx.canListPosts) { %><!--
+                                    --></a><!--
+                                --><% } %>&#32;<!--
+                                --><span class='tag-usages' data-pseudo-content='<%- tag.postCount %>'></span><!--
+                            --></li><!--
                         --><% } %><!--
-                        --><% if (ctx.canViewTags) { %><!--
-                            --></a><!--
-                        --><% } %><!--
-                        --><% if (ctx.canListPosts) { %><!--
-                            --><a href='<%- ctx.formatClientLink('posts', {query: ctx.escapeTagName(tag.names[0])}) %>' class='<%= ctx.makeCssName(tag.category, 'tag') %>'><!--
-                        --><% } %><!--
-                            --><%- ctx.getPrettyName(tag.names[0]) %><!--
-                        --><% if (ctx.canListPosts) { %><!--
-                            --></a><!--
-                        --><% } %>&#32;<!--
-                        --><span class='tag-usages' data-pseudo-content='<%- tag.postCount %>'></span><!--
-                    --></li><!--
-                --><% } %><!--
-            --></ul>
+                    --></ul>
+                </section>
+            <% } %>
+
         <% } else { %>
             <p>
                 No tags yet!
@@ -116,4 +170,5 @@
             </p>
         <% } %>
     </nav>
+
 </div>

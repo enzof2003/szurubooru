@@ -21,7 +21,7 @@ services:
       #LOG_SQL: 0 (1 for verbose SQL logs)
       THREADS:
     volumes:
-      - "${MOUNT_DATA}:/data"
+      - "/var/local/szurubooru/data:/data"
       - "./server/config.yaml:/opt/app/config.yaml"
 
   client:
