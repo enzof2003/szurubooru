@@ -277,6 +277,51 @@ function makePoolLink(id, includeHash, includeCount, pool, name) {
           );
 }
 
+function makePoolLinkv2(id, includeHash, includeCount, pool, name) {
+    const category = pool && pool.category ? pool.category : "unknown";
+
+    // Get pretty name
+    let text = misc.getPrettyName(
+        name ? name : pool && pool.names ? pool.names[0] : "pool " + id
+    );
+
+    // Convert underscores to spaces
+    text = text.replace(/_/g, " ");
+
+    // Add hash if needed
+    if (includeHash === true) {
+        text = "#" + text;
+    }
+
+    // Add post count if needed
+    if (includeCount === true) {
+        text += " (" + (pool && pool.postCount ? pool.postCount : 0) + ")";
+    }
+
+    const cssClass = misc.makeCssName(category, "pool");
+
+    // Wrap text in <b>…</b>
+    const boldText = "<b>" + misc.escapeHtml(text) + "</b>";
+
+    if (api.hasPrivilege("pools:view")) {
+        return makeElement(
+            "a",
+            {
+                href: `/posts?query=pool:${id} -sort:pool`,
+                class: cssClass,
+            },
+            boldText
+        );
+    }
+
+    return makeElement(
+        "div",
+        { class: cssClass },
+        boldText
+    );
+}
+
+
 function makeUserLink(user) {
     let text = makeThumbnail(user ? user.avatarUrl : null);
     text += user && user.name ? misc.escapeHtml(user.name) : "Anonymous";
@@ -468,6 +513,7 @@ function getTemplate(templatePath) {
             makePostLink: makePostLink,
             makeTagLink: makeTagLink,
             makePoolLink: makePoolLink,
+            makePoolLinkv2: makePoolLinkv2,
             makeUserLink: makeUserLink,
             makeFlexboxAlign: makeFlexboxAlign,
             makeAccessKey: makeAccessKey,
@@ -606,6 +652,7 @@ module.exports = {
     makeTagLink: makeTagLink,
     makePostLink: makePostLink,
     makePoolLink: makePoolLink,
+    makePoolLinkv2: makePoolLinkv2,
     makeCheckbox: makeCheckbox,
     makeRadio: makeRadio,
     syncScrollPosition: syncScrollPosition,
