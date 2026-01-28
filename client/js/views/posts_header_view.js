@@ -92,7 +92,7 @@ class BulkTagEditor extends BulkEditor {
                         .then((tag_str) => {
                             this._autoCompleteControl.replaceSelectedText(
                                 tag_str,
-                                false
+                                true
                             );
                         });
                 },

@@ -71,9 +71,11 @@ class AutoCompleteControl {
             this._sourceInputNode.value = this._sourceInputNode.value.trimLeft();
         }
         const selection = this._sourceInputNode.value.length - suffix.length;
+        /* Removed to allow trailing whitespace
         if (!addSpace) {
             this._sourceInputNode.value = this._sourceInputNode.value.trimRight();
         }
+        */
         this._sourceInputNode.setSelectionRange(selection, selection);
         this._sourceInputNode.focus();
     }
