@@ -36,7 +36,7 @@ class Pool extends events.EventTarget {
     }
 
     get posts() {
-        return this._postsMicro || this._posts;
+        return this._posts;
     }
 
     get postCount() {
