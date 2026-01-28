@@ -84,8 +84,24 @@ class PoolCreateView extends events.EventTarget {
     }
 
     _evtPostsInput(e) {
+        let value = this._postsFieldNode.value;
+
+        // Expand ranges like "4.10" into "4 5 6 7 8 9 10"
+        value = value.replace(/(\d+)\s*\.\s*(\d+)/g, (match, start, end) => {
+            start = parseInt(start);
+            end = parseInt(end);
+            if (end < start) return match; // don't expand reversed ranges
+            const nums = [];
+            for (let i = start; i <= end; i++) nums.push(i);
+            return nums.join(" ");
+        });
+
+        // Write back the expanded value WITHOUT trimming spaces
+        this._postsFieldNode.value = value;
+
+        // Validate each token
         const regex = /^\d+$/;
-        const list = misc.splitByWhitespace(this._postsFieldNode.value);
+        const list = misc.splitByWhitespace(value);
 
         for (let item of list) {
             if (!regex.test(item)) {
@@ -98,6 +114,7 @@ class PoolCreateView extends events.EventTarget {
 
         this._postsFieldNode.setCustomValidity("");
     }
+
 
     _evtSubmit(e) {
         e.preventDefault();

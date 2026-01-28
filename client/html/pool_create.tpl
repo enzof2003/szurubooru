@@ -26,7 +26,7 @@
                 <%= ctx.makeTextInput({
                     text: 'Posts',
                     value: '',
-                    placeholder: 'space-separated post IDs',
+                    placeholder: 'space-separated post IDs or ID range separated by . (example: 4.10)',
                 }) %>
             </li>
         </ul>
