@@ -72,6 +72,9 @@ Promise.resolve()
             controllers.push(
                 require("./controllers/pool_create_controller.js")
             );
+            
+            controllers.push(require("./controllers/pool_gallery_controller.js"));
+
             controllers.push(require("./controllers/pool_controller.js"));
             controllers.push(require("./controllers/pool_list_controller.js"));
             controllers.push(
