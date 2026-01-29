@@ -19,14 +19,15 @@
       <% } %>
     </span>
     <span class='pool-name'>
-      <% if (ctx.canViewPools) { %>
-        <a class='<%- ctx.linkClass %>' href='<%= ctx.formatClientLink("pool", ctx.pool.id) %>'>
-      <% } %>
+    <% if (ctx.canViewPools) { %>
+      <a class='<%- ctx.linkClass %>' href='/pool/<%- ctx.pool.id %>/gallery'>
+    <% } %>
         Pool: <%- ctx.getPrettyName(ctx.pool.names[0]) %>
-      <% if (ctx.canViewPools) { %>
-        </a>
-      <% } %>
-    </span>
+    <% if (ctx.canViewPools) { %>
+      </a>
+    <% } %>
+  </span>
+
     <span class='next'>
       <% if (ctx.canViewPosts && ctx.nextPost) { %>
         <a class='<%- ctx.linkClass %>' href='<%= ctx.getPostUrl(ctx.nextPost.id, ctx.parameters) %>'>

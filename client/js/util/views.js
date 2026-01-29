@@ -300,14 +300,14 @@ function makePoolLinkv2(id, includeHash, includeCount, pool, name) {
 
     const cssClass = misc.makeCssName(category, "pool");
 
-    // Wrap text in <b>…</b>
+    // Wrap text in <b>ï¿½</b>
     const boldText = "<b>" + misc.escapeHtml(text) + "</b>";
 
     if (api.hasPrivilege("pools:view")) {
         return makeElement(
             "a",
             {
-                href: `/posts?query=pool:${id} -sort:pool`,
+                href: `/posts/query=pool:${id} -sort:pool`,
                 class: cssClass,
             },
             boldText

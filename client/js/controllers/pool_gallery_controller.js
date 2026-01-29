@@ -35,7 +35,7 @@ class PoolGalleryController {
             (posts) => {
                 if (!posts) return;
 
-                console.log("GALLERY CONTROLLER: posts loaded", posts.length);
+                document.title = `Tengu Futaket - Pool ${this._pool.id} Gallery`;
 
                 // 3. Render the view (still the pool-create form for now)
                 this._view = new PoolGalleryView({
