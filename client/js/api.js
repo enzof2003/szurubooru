@@ -275,12 +275,13 @@ class Api extends events.EventTarget {
         return userToken.token === this.token;
     }
 
-    _getFullUrl(url) {
-        const fullUrl = ("api/" + url).replace(/([^:])\/+/g, "$1/");
-        const matches = fullUrl.match(/^([^?]*)\??(.*)$/);
-        const baseUrl = matches[1];
-        const request = matches[2];
-        return [baseUrl, request];
+    _getFullUrl(url, baseOverride) {
+        const path = ("api/" + url).replace(/([^:])\/+/g, "$1/");
+        const matches = path.match(/^([^?]*)\??(.*)$/);
+        const basePath = matches[1];
+        const query = matches[2];
+        const fullUrl = baseOverride ? baseOverride + "/" + basePath : basePath;
+        return [fullUrl, query];
     }
 
     _getFileId(file) {
@@ -351,14 +352,15 @@ class Api extends events.EventTarget {
     }
 
     _upload(file, options) {
-        let abortFunction = () => {};
+        let abortFunction = () => { };
         let returnedPromise = new Promise((resolve, reject) => {
             let uploadPromise = this._rawRequest(
                 "uploads",
                 request.post,
                 {},
                 { content: file },
-                options
+                options,
+                "https://direct.tengu-futaket.xyz"  // bypass Cloudflare for uploads
             );
             abortFunction = () => uploadPromise.abort();
             return uploadPromise.then((response) => {
@@ -370,10 +372,10 @@ class Api extends events.EventTarget {
         return returnedPromise;
     }
 
-    _rawRequest(url, requestFactory, data, files, options) {
+    _rawRequest(url, requestFactory, data, files, options, baseOverride) {
         options = options || {};
         data = Object.assign({}, data);
-        const [fullUrl, query] = this._getFullUrl(url);
+        const [fullUrl, query] = this._getFullUrl(url, baseOverride);
 
         let abortFunction = () => {};
         let returnedPromise = new Promise((resolve, reject) => {
