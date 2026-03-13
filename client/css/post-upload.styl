@@ -83,6 +83,7 @@ $cancel-button-color = tomato
                 border: 1px solid $upload-border-color
                 min-height: 8em
                 box-sizing: border-box
+                overflow: hidden
 
                 header
                     line-height: 1.5em
@@ -146,6 +147,7 @@ $cancel-button-color = tomato
                             margin: 1em 0 0 0
                             padding-left: 7em
                             font-size: 90%
+                            min-height: 4em
 
                             .thumbnail-wrapper
                                 float: left
@@ -159,9 +161,14 @@ $cancel-button-color = tomato
                         .description
                             margin-right: 0.5em
                             display: inline-block
+                            vertical-align: top
                         .controls
                             float: right
                             display: inline-block
+                            vertical-align: top
+                            line-height: 1.8em
+                            margin-bottom: 0.3em 
+
 
 
             &:first-child .move-up

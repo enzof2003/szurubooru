@@ -36,6 +36,7 @@ class Uploadable extends events.EventTarget {
         this.flags = [];
         this.tags = [];
         this.relations = [];
+        this.replacePost = null; // will hold the post ID to replace, or null
         this.anonymous = !api.isLoggedIn();
         this.forceAnonymous = !api.isLoggedIn();
     }
@@ -308,6 +309,7 @@ class PostUploadView extends events.EventTarget {
 
         uploadable.tags = [];
         uploadable.relations = [];
+        uploadable.replacePost = null;
         for (let [i, lookalike] of uploadable.lookalikes.entries()) {
             let lookalikeNode = rowNode.querySelector(
                 `.lookalikes li:nth-child(${i + 1})`
@@ -319,6 +321,9 @@ class PostUploadView extends events.EventTarget {
             }
             if (lookalikeNode.querySelector("[name=add-relation]").checked) {
                 uploadable.relations.push(lookalike.post.id);
+            }
+            if (lookalikeNode.querySelector("[name=replace-post]").checked) {
+                uploadable.replacePost = lookalike.post.id;
             }
         }
     }
