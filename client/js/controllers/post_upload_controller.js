@@ -158,13 +158,27 @@ class PostUploadController {
                         return Promise.reject(error);
                     }
                 }
-
                 // no duplicates, proceed with saving
                 let post = this._uploadableToPost(uploadable);
-                let savePromise = post.save(uploadable.anonymous).then(() => {
-                    this._view.removeUploadable(uploadable);
-                    return Promise.resolve();
-                });
+                let savePromise;
+
+                if (uploadable.replacePost !== null) {
+                    savePromise = Post.get(uploadable.replacePost)
+                        .then((existingPost) => {
+                            existingPost.newContent = uploadable.url || uploadable.file;
+                            return existingPost.save(uploadable.anonymous);
+                        })
+                        .then(() => {
+                            this._view.removeUploadable(uploadable);
+                            return Promise.resolve();
+                        });
+                } else {
+                    savePromise = post.save(uploadable.anonymous).then(() => {
+                        this._view.removeUploadable(uploadable);
+                        return Promise.resolve();
+                    });
+                }
+
                 this._lastCancellablePromise = savePromise;
                 return savePromise;
             })
