@@ -50,10 +50,15 @@ tar -xzf "$STAGE/thumbnails.tgz"  -C "$DATA_DIR"      # generated-thumbnails + a
 tar -xzf "$STAGE/letsencrypt.tgz" -C /etc            # valid certs
 
 echo "=== [4/9] cloning szuru at the recorded commit + restoring app config ==="
+# The bundle may have captured an SSH remote (git@github.com:...), but this fresh
+# box has no SSH key. The repo is PUBLIC, so normalize to anonymous HTTPS.
+REMOTE="$(cat "$STAGE/git-remote.txt")"
+REMOTE_HTTPS="$(echo "$REMOTE" | sed -E 's#git@github.com:#https://github.com/#; s#^ssh://git@github.com/#https://github.com/#')"
+echo "  cloning over: $REMOTE_HTTPS"
 if [[ ! -d "$SZURU_DIR/.git" ]]; then
-  git clone "$(cat "$STAGE/git-remote.txt")" "$SZURU_DIR"
+  GIT_TERMINAL_PROMPT=0 git clone "$REMOTE_HTTPS" "$SZURU_DIR"
 fi
-git -C "$SZURU_DIR" fetch --all
+GIT_TERMINAL_PROMPT=0 git -C "$SZURU_DIR" fetch origin
 git -C "$SZURU_DIR" checkout "$(cat "$STAGE/git-commit.txt")"
 cp "$STAGE/config.yaml" "$SZURU_DIR/server/config.yaml"   # carries the LOAD-BEARING secret
 cp "$STAGE/env"         "$SZURU_DIR/.env"

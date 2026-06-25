@@ -93,11 +93,16 @@ the nginx vhost, `szuru-backup.sh`, `root.crontab`, `thumbnails.tgz`,
 Almost everything is automated. **Warn the user, then run:**
 
 ```bash
-# get the repo first if it isn't here yet:
-#   git clone <remote> /root/szuru   (remote is in the bundle's git-remote.txt)
+# get the repo first (this box is keyless; the repo is PUBLIC, so clone over HTTPS):
+git clone https://github.com/enzof2003/szurubooru.git /root/szuru
 chmod +x /root/szuru/doc/migrate-restore.sh
+# the cutover bundle is in B2 (and on the user's laptop). To pull from B2:
+#   b2 download-file-by-name tengu-posts-backup szuru-migrate-bundle-20260625-2246.tgz ./bundle.tgz
 /root/szuru/doc/migrate-restore.sh /path/to/szuru-migrate-bundle-YYYYMMDD-HHMM.tgz
 ```
+> The script also auto-normalizes the bundle's git remote to HTTPS, so its internal
+> clone works on a keyless box too. Clone master (default branch) to get the latest
+> version of this script.
 
 The script: installs deps → restores configs/creds/thumbnails/certs → clones repo at
 the recorded commit → installs the tuned rclone mount → brings up Postgres and
@@ -147,3 +152,10 @@ test. It then prints the **manual steps** below.
 - 2026-06-26 — Initial handoff written on the old US box. Migration approach: free
   Contabo in-place relocation; DB restore dry-run verified clean; tuned rclone cache
   flags adopted; bundle/scripts created (`migrate-export.sh`, `migrate-restore.sh`).
+- 2026-06-26 — Cutover done on the old box. Cutover bundle
+  `szuru-migrate-bundle-20260625-2246.tgz` validated from B2: all artifacts present,
+  `secret` present, git commit `a14f32d4` matches, both domains' LE certs present,
+  DB dump restores clean (25,700 posts, full schema + FKs). App confirmed stopped
+  (server/client down, sql up). Fixed a keyless-clone gap: bundle captured the SSH
+  remote, but the fresh box has no key — `migrate-restore.sh` now normalizes the
+  GitHub remote to anonymous HTTPS (repo is public). Old server IP was 209.145.49.213.
