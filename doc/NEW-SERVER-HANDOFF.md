@@ -152,6 +152,26 @@ test. It then prints the **manual steps** below.
 - 2026-06-26 — Initial handoff written on the old US box. Migration approach: free
   Contabo in-place relocation; DB restore dry-run verified clean; tuned rclone cache
   flags adopted; bundle/scripts created (`migrate-export.sh`, `migrate-restore.sh`).
+- 2026-06-26 — **EU box rebuilt and live.** Ran `migrate-restore.sh` on the new
+  Contabo box (IP `217.76.48.159`, Ubuntu 24.04.4). DB restored clean (25,700 posts,
+  2,317 tags, 12 users, 488 pools; alembic head `d60550a53dc0`, no migration applied).
+  rclone mount up; **latency to bucket = 10 ms** (was ~145 ms — goal achieved). DNS
+  cut over in **Cloudflare** (not Namecheap — Namecheap only delegates NS to
+  Cloudflare): apex/www proxied (origin A → new IP), `direct.` DNS-only → new IP.
+  Site, login, thumbnails, cold B2 reads all verified. Three post-rebuild fixes, now
+  folded into the scripts/repo:
+  1. **`temporary-uploads` dir** wasn't in the bundle → uploads 500'd
+     (`PermissionError`), which the browser showed as a *misleading CORS error*.
+     `migrate-restore.sh` now creates it (owned 1000:1000). **This is the #1 gotcha.**
+  2. **Upload CORS**: a failed upload looks like a CORS error only because the szuru
+     *client container* nginx adds `Access-Control-Allow-Origin` solely on success
+     (no `always`); error responses lack it. Do **not** add CORS headers in the host
+     vhost's `/api/uploads` proxied path — the client container already adds exactly
+     one, and a second causes a duplicate-ACAO browser rejection. Host vhost should
+     keep CORS only in the `OPTIONS` preflight block (bundle default is correct).
+  3. **Upload size cap raised 1 GiB → 5 GiB**: `client/nginx.conf.docker`
+     (`client_max_body_size`) + `server/docker-start.sh` (waitress
+     `--max-request-body-size`). Host vhost was already `10g`. Rebuild client+server.
 - 2026-06-26 — Cutover done on the old box. Cutover bundle
   `szuru-migrate-bundle-20260625-2246.tgz` validated from B2: all artifacts present,
   `secret` present, git commit `a14f32d4` matches, both domains' LE certs present,

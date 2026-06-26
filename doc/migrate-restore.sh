@@ -48,6 +48,12 @@ cp "$STAGE/szuru-backup.sh"  /usr/local/bin/szuru-backup.sh && chmod +x /usr/loc
 crontab "$STAGE/root.crontab"
 tar -xzf "$STAGE/thumbnails.tgz"  -C "$DATA_DIR"      # generated-thumbnails + avatars
 tar -xzf "$STAGE/letsencrypt.tgz" -C /etc            # valid certs
+# temporary-uploads is transient scratch (NOT in the bundle). The szuru server runs
+# as uid 1000 and can't create it under the root-owned $DATA_DIR, so make it now.
+# Without this, uploads 500 with PermissionError on /data/temporary-uploads (which
+# surfaces in the browser as a misleading CORS error).
+mkdir -p "$DATA_DIR/temporary-uploads"
+chown 1000:1000 "$DATA_DIR/temporary-uploads"
 
 echo "=== [4/9] cloning szuru at the recorded commit + restoring app config ==="
 # The bundle may have captured an SSH remote (git@github.com:...), but this fresh
