@@ -21,7 +21,15 @@ services:
       #LOG_SQL: 0 (1 for verbose SQL logs)
       THREADS:
     volumes:
-      - "/var/local/szurubooru/data:/data"
+      ## rslave propagation ensures that if the rclone (B2) FUSE mount at
+      ## /var/local/szurubooru/data/posts is remounted/restarted on the host,
+      ## the new mount propagates into this container instead of leaving it
+      ## pinned to a dead FUSE connection ("Socket not connected" -> 500s).
+      - type: bind
+        source: /var/local/szurubooru/data
+        target: /data
+        bind:
+          propagation: rslave
       - "./server/config.yaml:/opt/app/config.yaml"
 
   client:
@@ -32,7 +40,13 @@ services:
       BACKEND_HOST: server
       BASE_URL:
     volumes:
-      - "${MOUNT_DATA}:/data:ro"
+      ## Read-only, with rslave so host rclone remounts propagate in (see server).
+      - type: bind
+        source: "${MOUNT_DATA}"
+        target: /data
+        read_only: true
+        bind:
+          propagation: rslave
     ports:
       - "${PORT}:80"
 
