@@ -1,6 +1,15 @@
 @import colors
 
 .post-overlay
+    // When simply viewing a post (not editing/drawing notes), let pointer
+    // events pass through the overlay to the image underneath, so the browser
+    // context menu offers "Copy Image"/"Save Image" on right-click. Individual
+    // note polygons still set pointer-events: auto below, so hovering a note to
+    // reveal its text keeps working.
+    &[data-state=read-only],
+    &[data-state=passive]
+        pointer-events: none
+
     &[data-state=ready-to-draw],
     &[data-state=drawing-rectangle],
     &[data-state=drawing-polygon]
