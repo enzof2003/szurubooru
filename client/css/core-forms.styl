@@ -355,7 +355,9 @@ input[type=file]:focus+.file-dropper,
 
 .autocomplete
     position: absolute
-    z-index: 10
+    // Must sit above page content such as the pool-list stacked thumbnails
+    // (z-index up to 30), otherwise search suggestions render behind them.
+    z-index: 100
     background: $window-color
     border: 2px solid $main-color
     display: none
