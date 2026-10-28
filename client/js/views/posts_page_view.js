@@ -1,7 +1,9 @@
 "use strict";
 
 const events = require("../events.js");
+const keyboard = require("../util/keyboard.js");
 const views = require("../util/views.js");
+const PostSelectionControl = require("../controls/post_selection_control.js");
 
 const template = views.getTemplate("posts-page");
 
@@ -49,10 +51,23 @@ class PostsPageView extends events.EventTarget {
         }
 
         this._syncBulkEditorsHighlights();
+
+        this._selectionControl = null;
+        if (ctx.canSelect && this._postListNode) {
+            this._initSelection();
+        }
     }
 
     get _listItemNodes() {
         return this._hostNode.querySelectorAll("li");
+    }
+
+    get _postListNode() {
+        return this._hostNode.querySelector(".post-list");
+    }
+
+    get _selectionBarNode() {
+        return this._hostNode.querySelector(".post-selection-bar");
     }
 
     _getTagFlipperNode(listItemNode) {
@@ -66,6 +81,126 @@ class PostsPageView extends events.EventTarget {
     _getDeleteFlipperNode(listItemNode) {
         return listItemNode.querySelector(".delete-flipper");
     }
+
+    // ---- selection -------------------------------------------------------
+
+    _initSelection() {
+        this._selectionControl = new PostSelectionControl(this._postListNode);
+        this._selectionControl.addEventListener("change", (e) =>
+            this._syncSelectionBar()
+        );
+
+        const barNode = this._selectionBarNode;
+        if (!barNode) {
+            return;
+        }
+
+        const bind = (selector, handler) => {
+            for (let node of barNode.querySelectorAll(selector)) {
+                node.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    handler(e, node);
+                });
+            }
+        };
+
+        const tagLabel = this._describeBulkEditTags();
+        for (let node of barNode.querySelectorAll(".tag-selected")) {
+            node.textContent = `Add ${tagLabel}`;
+        }
+        for (let node of barNode.querySelectorAll(".untag-selected")) {
+            node.textContent = `Remove ${tagLabel}`;
+        }
+
+        bind(".tag-selected", () => this._dispatchForSelection("bulkTag", {}));
+        bind(".untag-selected", () =>
+            this._dispatchForSelection("bulkUntag", {})
+        );
+        bind(".safety-selected a", (e, node) =>
+            this._dispatchForSelection("bulkChangeSafety", {
+                safety: node.getAttribute("data-safety"),
+            })
+        );
+        bind(".mark-selected-deleted", () =>
+            this._dispatchForSelection("bulkMarkForDeletion", {
+                delete: true,
+            })
+        );
+        bind(".unmark-selected-deleted", () =>
+            this._dispatchForSelection("bulkMarkForDeletion", {
+                delete: false,
+            })
+        );
+        bind(".select-all", () => this._selectionControl.selectAll());
+        bind(".clear-selection", () => this._selectionControl.clear());
+        keyboard.bind("esc", () => {
+            if (this._selectionControl.count) {
+                this._selectionControl.clear();
+            }
+        });
+
+        this._syncSelectionBar();
+    }
+
+    get selectedPosts() {
+        if (!this._selectionControl) {
+            return [];
+        }
+        return this._selectionControl.selectedIds
+            .map((postId) => this._postIdToPost[postId])
+            .filter((post) => post);
+    }
+
+    clearSelection() {
+        if (this._selectionControl) {
+            this._selectionControl.clear();
+        }
+    }
+
+    // Lets the controller redraw the flippers after it changed state the view
+    // only sees through its render context (e.g. the deletion list).
+    refreshHighlights() {
+        this._syncBulkEditorsHighlights();
+    }
+
+    _describeBulkEditTags() {
+        const tags = (this._ctx.bulkEdit && this._ctx.bulkEdit.tags) || [];
+        if (!tags.length) {
+            return "tags";
+        }
+        if (tags.length <= 2) {
+            return tags.join(" ");
+        }
+        return `${tags.length} tags`;
+    }
+
+    _dispatchForSelection(eventName, detail) {
+        const posts = this.selectedPosts;
+        if (!posts.length) {
+            return;
+        }
+        this.dispatchEvent(
+            new CustomEvent(
+                eventName,
+                { detail: Object.assign({ posts: posts }, detail) }
+            )
+        );
+    }
+
+    _syncSelectionBar() {
+        const barNode = this._selectionBarNode;
+        if (!barNode) {
+            return;
+        }
+        const count = this._selectionControl.count;
+        const countNode = barNode.querySelector(".count");
+        if (countNode) {
+            countNode.textContent = count;
+        }
+        barNode.hidden = count === 0;
+    }
+
+    // ---- per-post bulk editors -------------------------------------------
 
     _evtPostChange(e) {
         const listItemNode = this._postIdToListItemNode[e.detail.post.id];
@@ -128,6 +263,9 @@ class PostsPageView extends events.EventTarget {
         for (let listItemNode of this._listItemNodes) {
             const postId = listItemNode.getAttribute("data-post-id");
             const post = this._postIdToPost[postId];
+            if (!post) {
+                continue;
+            }
 
             const tagFlipperNode = this._getTagFlipperNode(listItemNode);
             if (tagFlipperNode) {

@@ -3,6 +3,7 @@
 const router = require("../router.js");
 const api = require("../api.js");
 const settings = require("../models/settings.js");
+const tasks = require("../util/tasks.js");
 const uri = require("../util/uri.js");
 const PostList = require("../models/post_list.js");
 const topNavigation = require("../models/top_navigation.js");
@@ -63,6 +64,7 @@ class PostListController {
         }
 
         this._postsMarkedForDeletion = [];
+        this._postsPageView = null;
         this._syncPageController();
     }
 
@@ -103,16 +105,111 @@ class PostListController {
     }
 
     _evtMarkForDeletion(e) {
-        const postId = e.detail;
+        this._setMarkedForDeletion([e.detail.post], e.detail.delete);
+    }
 
-        // Add or remove post from delete list
-        if (e.detail.delete) {
-            this._postsMarkedForDeletion.push(e.detail.post);
-        } else {
-            this._postsMarkedForDeletion = this._postsMarkedForDeletion.filter(
-                (x) => x.id != e.detail.post.id
+    // The array is handed to the page view through its render context, so it
+    // has to be updated in place - replacing it would leave the view looking at
+    // a stale copy.
+    _setMarkedForDeletion(posts, marked) {
+        for (let post of posts) {
+            const index = this._postsMarkedForDeletion.findIndex(
+                (x) => x.id == post.id
             );
+            if (marked && index === -1) {
+                this._postsMarkedForDeletion.push(post);
+            } else if (!marked && index !== -1) {
+                this._postsMarkedForDeletion.splice(index, 1);
+            }
         }
+    }
+
+    // ---- actions on a selection of posts ---------------------------------
+
+    _runOnSelection(posts, worker, describeSuccess) {
+        if (!posts.length) {
+            return Promise.resolve();
+        }
+        const view = this._pageController.view;
+        view.clearMessages();
+        return tasks
+            .runWithConcurrency(posts, worker, { concurrency: 4 })
+            .then((outcome) => {
+                const succeeded = posts.length - outcome.errors.length;
+                if (succeeded) {
+                    view.showSuccess(describeSuccess(succeeded));
+                }
+                const summary = tasks.summarizeErrors(outcome.errors);
+                if (summary) {
+                    view.showError(summary);
+                }
+            });
+    }
+
+    _evtBulkTag(e) {
+        const tags = this._bulkEditTags;
+        if (!tags.length) {
+            return;
+        }
+        this._runOnSelection(
+            e.detail.posts,
+            (post) =>
+                Promise.all(tags.map((tag) => post.tags.addByName(tag))).then(
+                    () => post.save()
+                ),
+            (count) => `Tagged ${count} post(s) with ${tags.join(" ")}.`
+        );
+    }
+
+    _evtBulkUntag(e) {
+        const tags = this._bulkEditTags;
+        if (!tags.length) {
+            return;
+        }
+        this._runOnSelection(
+            e.detail.posts,
+            (post) => {
+                for (let tag of tags) {
+                    post.tags.removeByName(tag);
+                }
+                return post.save();
+            },
+            (count) => `Removed ${tags.join(" ")} from ${count} post(s).`
+        );
+    }
+
+    _evtBulkChangeSafety(e) {
+        const safety = e.detail.safety;
+        const posts = e.detail.posts.filter((post) => post.safety !== safety);
+        if (!posts.length) {
+            return;
+        }
+        this._runOnSelection(
+            posts,
+            (post) => {
+                post.safety = safety;
+                return post.save();
+            },
+            (count) => `Set ${count} post(s) to ${safety}.`
+        );
+    }
+
+    _evtBulkMarkForDeletion(e) {
+        this._setMarkedForDeletion(e.detail.posts, e.detail.delete);
+        if (this._postsPageView) {
+            this._postsPageView.refreshHighlights();
+        }
+        const view = this._pageController.view;
+        view.clearMessages();
+        view.showInfo(
+            e.detail.delete
+                ? `${this._postsMarkedForDeletion.length} post(s) marked for deletion. Use "Delete selected posts" in the header to confirm.`
+                : `${this._postsMarkedForDeletion.length} post(s) still marked for deletion.`
+        );
+    }
+
+    _evtViewError(e) {
+        this._pageController.view.showError(e.detail.message);
     }
 
     _evtDeleteSelectedPosts(e) {
@@ -154,13 +251,25 @@ class PostListController {
                 );
             },
             pageRenderer: (pageCtx) => {
+                const canBulkEditTags = api.hasPrivilege(
+                    "posts:bulk-edit:tags"
+                );
+                const canBulkEditSafety = api.hasPrivilege(
+                    "posts:bulk-edit:safety"
+                );
+                const canBulkDelete = api.hasPrivilege(
+                    "posts:bulk-edit:delete"
+                );
                 Object.assign(pageCtx, {
                     canViewPosts: api.hasPrivilege("posts:view"),
-                    canBulkEditTags: api.hasPrivilege("posts:bulk-edit:tags"),
-                    canBulkEditSafety: api.hasPrivilege(
-                        "posts:bulk-edit:safety"
-                    ),
-                    canBulkDelete: api.hasPrivilege("posts:bulk-edit:delete"),
+                    enableSafety: api.safetyEnabled(),
+                    canBulkEditTags: canBulkEditTags,
+                    canBulkEditSafety: canBulkEditSafety,
+                    canBulkDelete: canBulkDelete,
+                    canSelect:
+                        canBulkEditTags ||
+                        canBulkEditSafety ||
+                        canBulkDelete,
                     bulkEdit: {
                         tags: this._bulkEditTags,
                         markedForDeletion: this._postsMarkedForDeletion,
@@ -168,6 +277,7 @@ class PostListController {
                     postFlow: settings.get().postFlow,
                 });
                 const view = new PostsPageView(pageCtx);
+                this._postsPageView = view;
                 view.addEventListener("tag", (e) => this._evtTag(e));
                 view.addEventListener("untag", (e) => this._evtUntag(e));
                 view.addEventListener("changeSafety", (e) =>
@@ -176,6 +286,17 @@ class PostListController {
                 view.addEventListener("markForDeletion", (e) =>
                     this._evtMarkForDeletion(e)
                 );
+                view.addEventListener("bulkTag", (e) => this._evtBulkTag(e));
+                view.addEventListener("bulkUntag", (e) =>
+                    this._evtBulkUntag(e)
+                );
+                view.addEventListener("bulkChangeSafety", (e) =>
+                    this._evtBulkChangeSafety(e)
+                );
+                view.addEventListener("bulkMarkForDeletion", (e) =>
+                    this._evtBulkMarkForDeletion(e)
+                );
+                view.addEventListener("error", (e) => this._evtViewError(e));
                 return view;
             },
         });

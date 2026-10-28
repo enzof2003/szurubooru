@@ -271,3 +271,99 @@
             border-color: @background-color
             &.disabled
                 background-color: alpha(@background-color, 0.15)
+
+// ---- marquee selection --------------------------------------------------
+
+.post-list
+    position: relative
+
+    &.selecting
+        user-select: none
+        -moz-user-select: none
+        -webkit-user-select: none
+
+    .selection-marquee
+        position: absolute
+        z-index: 10
+        pointer-events: none
+        border: 1px solid $main-color
+        background: alpha($main-color, 0.2)
+
+    ul li.selected
+        .thumbnail
+            outline: 4px solid $main-color !important
+            opacity: .85
+        &:after
+            content: ''
+            position: absolute
+            top: 0
+            left: 0
+            right: 0
+            bottom: 0
+            pointer-events: none
+            background: alpha($main-color, 0.25)
+
+.post-flow
+    ul li.selected
+        .thumbnail
+            outline: 2px solid $main-color !important
+
+.post-selection-bar
+    position: fixed
+    z-index: 20
+    left: 0
+    right: 0
+    bottom: 0
+    padding: 0.6em 1em
+    box-sizing: border-box
+    background: $window-color
+    border-top: 1px solid $line-color
+    box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.15)
+    white-space: normal
+    text-align: left
+
+    .summary
+        display: inline-block
+        margin-right: 1em
+        font-weight: bold
+        .count
+            color: $main-color
+
+    .actions
+        a.button
+            margin-right: 0.4em
+            margin-bottom: 0.25em
+
+    .safety-selected
+        display: inline-block
+        margin-right: 0.6em
+        vertical-align: middle
+        a
+            display: inline-block
+            width: 1.2em
+            height: 1.2em
+            margin: 0 0.1em
+            box-sizing: border-box
+            border: 3px solid
+            vertical-align: middle
+            &.safety-safe
+                background-color: $safety-safe
+                border-color: @background-color
+            &.safety-sketchy
+                background-color: $safety-sketchy
+                border-color: @background-color
+            &.safety-unsafe
+                background-color: $safety-unsafe
+                border-color: @background-color
+
+    .hint
+        display: block
+        margin-top: 0.4em
+        font-size: 0.85em
+        color: $inactive-link-color
+
+.darktheme .post-selection-bar
+    background: $window-color-darktheme
+    border-top-color: rgba(255, 255, 255, 0.15)
+    .hint
+        color: $inactive-link-color-darktheme

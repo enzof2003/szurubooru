@@ -60,4 +60,29 @@
             <%= ctx.makeFlexboxAlign() %>
         </ul>
     <% } %>
+    <% if (ctx.canSelect) { %>
+        <div class='post-selection-bar' hidden>
+            <span class='summary'><span class='count'>0</span> selected</span>
+            <span class='actions'>
+                <% if (ctx.canBulkEditTags && ctx.parameters && ctx.parameters.tag) { %>
+                    <a href class='button tag-selected'>Add tags</a>
+                    <a href class='button untag-selected'>Remove tags</a>
+                <% } %>
+                <% if (ctx.enableSafety && ctx.canBulkEditSafety && ctx.parameters && ctx.parameters.safety) { %>
+                    <span class='safety-selected'>
+                        <% for (let safety of ['safe', 'sketchy', 'unsafe']) { %>
+                            <a href data-safety='<%- safety %>' class='safety-<%- safety %>' title='Set selection to <%- safety %>'></a>
+                        <% } %>
+                    </span>
+                <% } %>
+                <% if (ctx.canBulkDelete && ctx.parameters && ctx.parameters.delete) { %>
+                    <a href class='button mark-selected-deleted'>Mark for deletion</a>
+                    <a href class='button unmark-selected-deleted'>Unmark</a>
+                <% } %>
+                <a href class='button select-all'>Select all</a>
+                <a href class='button clear-selection'>Clear</a>
+            </span>
+            <span class='hint'>drag to select &middot; ctrl+click to toggle &middot; shift+click for a range &middot; esc to clear</span>
+        </div>
+    <% } %>
 </div>
