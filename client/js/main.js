@@ -67,6 +67,9 @@ Promise.resolve()
             controllers.push(require("./controllers/tag_controller.js"));
             controllers.push(require("./controllers/tag_list_controller.js"));
             controllers.push(
+                require("./controllers/tag_diagnosis_controller.js")
+            );
+            controllers.push(
                 require("./controllers/tag_categories_controller.js")
             );
             controllers.push(

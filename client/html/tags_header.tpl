@@ -12,6 +12,9 @@
             <% if (ctx.canEditTagCategories) { %>
                 <a class='append' href='<%- ctx.formatClientLink('tag-categories') %>'>Tag categories</a>
             <% } %>
+            <% if (ctx.canDiagnoseTags) { %>
+                <a class='append' href='<%- ctx.formatClientLink('tag-diagnosis') %>'>Tag diagnosis</a>
+            <% } %>
         </div>
     </form>
 </div>

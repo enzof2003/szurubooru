@@ -1,0 +1,75 @@
+@import colors
+
+.content-wrapper.tag-diagnosis
+    max-width: 60em
+
+    .intro,
+    .hint
+        color: $inactive-link-color
+        font-size: 0.95em
+    .hint
+        margin-top: -0.3em
+
+    section
+        margin-bottom: 2.5em
+
+    h2
+        margin-bottom: 0.2em
+
+    .controls
+        margin: 0.75em 0
+        a.button
+            margin-right: 0.4em
+        label.problems-only
+            margin-left: 0.5em
+            font-size: 0.95em
+            white-space: nowrap
+        .progress
+            margin-left: 0.75em
+            font-size: 0.95em
+            color: $inactive-link-color
+
+    table
+        width: 100%
+        border-collapse: collapse
+        th
+            text-align: left
+            border-bottom: 1px solid $line-color
+        th, td
+            padding: 0.3em 0.5em 0.3em 0
+            vertical-align: top
+        tr.clean td.affected
+            color: $inactive-link-color
+        tr.problem td.affected
+            font-weight: bold
+            color: $post-thumbnail-no-tags-border-color
+        tr.failed td.affected
+            color: $post-thumbnail-no-tags-border-color
+        td.rule code
+            font-size: 0.95em
+        td.affected
+            width: 6em
+            white-space: nowrap
+        td.links
+            width: 11em
+            white-space: nowrap
+            a
+                margin-right: 0.6em
+        .query
+            display: block
+            color: $inactive-link-color
+            font-size: 0.85em
+
+    .summary
+        margin: 0.5em 0
+        font-size: 0.95em
+
+.darktheme .content-wrapper.tag-diagnosis
+    .intro,
+    .hint,
+    .controls .progress,
+    table .query,
+    table tr.clean td.affected
+        color: $inactive-link-color-darktheme
+    table th
+        border-bottom-color: rgba(255, 255, 255, 0.15)
