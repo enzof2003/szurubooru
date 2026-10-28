@@ -25,6 +25,22 @@ const fields = [
     "version",
 ];
 
+const MODES = [
+    { key: "tag", label: "Mass tag", privilege: "posts:bulk-edit:tags" },
+    {
+        key: "safety",
+        label: "Mass edit safety",
+        privilege: "posts:bulk-edit:safety",
+        needsSafety: true,
+    },
+    {
+        key: "delete",
+        label: "Mass delete",
+        privilege: "posts:bulk-edit:delete",
+    },
+    { key: "pool", label: "Pool creation", privilege: "pools:create" },
+];
+
 class PostListController {
     constructor(ctx) {
         this._pageController = new PageController();
@@ -40,18 +56,19 @@ class PostListController {
         topNavigation.activate("posts");
         topNavigation.setTitle("Listing posts");
 
+        this._postsMarkedForDeletion = [];
+        this._postsPageView = null;
+        this._poolCategories = null;
+        this._poolCategoryError = null;
+
         this._headerView = new PostsHeaderView({
             hostNode: this._pageController.view.pageHeaderHolderNode,
             parameters: ctx.parameters,
             enableSafety: api.safetyEnabled(),
-            canBulkEditTags: api.hasPrivilege("posts:bulk-edit:tags"),
-            canBulkEditSafety: api.hasPrivilege("posts:bulk-edit:safety"),
-            canBulkDelete: api.hasPrivilege("posts:bulk-edit:delete"),
-            canUseEditMode: this._canSelect,
+            canUseEditMode: this._availableModes.length > 0,
             editMode: this._editMode,
-            bulkEdit: {
-                tags: this._bulkEditTags,
-            },
+            availableModes: this._availableModes,
+            mode: this._mode,
         });
         this._headerView.addEventListener("navigate", (e) =>
             this._evtNavigate(e)
@@ -59,26 +76,16 @@ class PostListController {
         this._headerView.addEventListener("changeEditMode", (e) =>
             this._evtChangeEditMode(e)
         );
+        this._headerView.addEventListener("changeMode", (e) =>
+            this._evtChangeMode(e)
+        );
 
-        if (this._headerView._bulkDeleteEditor) {
-            this._headerView._bulkDeleteEditor.addEventListener(
-                "deleteSelectedPosts",
-                (e) => {
-                    this._evtDeleteSelectedPosts(e);
-                }
-            );
-        }
-
-        this._postsMarkedForDeletion = [];
-        this._postsPageView = null;
-        this._poolCategories = null;
-
-        // Fetched up front rather than when the pool form opens: the <select>
+        // Fetched up front rather than when the pool panel opens: the <select>
         // is rendered with the template, so there is no window in which it can
         // be submitted while still empty. In practice this is served from the
         // api cache, since the pool category colour map is already loaded at
         // startup.
-        this._whenReady = api.hasPrivilege("pools:create")
+        const ready = api.hasPrivilege("pools:create")
             ? PoolCategoryList.get().then(
                   (response) => {
                       this._poolCategories = response.results;
@@ -90,91 +97,88 @@ class PostListController {
               )
             : Promise.resolve();
 
-        this._whenReady.then(() => this._syncPageController());
-    }
-
-    get _editMode() {
-        return !!settings.get().editMode;
-    }
-
-    get _canSelect() {
-        return (
-            api.hasPrivilege("posts:bulk-edit:tags") ||
-            api.hasPrivilege("posts:bulk-edit:safety") ||
-            api.hasPrivilege("posts:bulk-edit:delete") ||
-            api.hasPrivilege("pools:create")
-        );
-    }
-
-    _evtChangeEditMode(e) {
-        // The header persists the setting itself; turning it off re-navigates
-        // (closing the bulk editors), which re-renders the page anyway.
-        if (this._postsPageView && e.detail.editMode) {
-            this._postsPageView.setEditMode(true);
-        } else if (this._postsPageView) {
-            this._postsPageView.setEditMode(false);
-        }
+        ready.then(() => this._syncPageController());
     }
 
     showSuccess(message) {
         this._pageController.showSuccess(message);
     }
 
+    // ---- state -----------------------------------------------------------
+
+    get _editMode() {
+        return !!settings.get().editMode;
+    }
+
+    get _availableModes() {
+        return MODES.filter(
+            (mode) =>
+                api.hasPrivilege(mode.privilege) &&
+                (!mode.needsSafety || api.safetyEnabled())
+        ).map((mode) => ({ key: mode.key, label: mode.label }));
+    }
+
+    // The batch mode lives in the url so it survives paging. The older
+    // safety=1 / delete=1 / tag=... parameters are still understood, so links
+    // made before this existed keep working.
+    get _mode() {
+        const parameters = this._ctx.parameters;
+        const available = this._availableModes.map((mode) => mode.key);
+        let mode = parameters.mode || null;
+        if (!mode) {
+            if (parameters.safety) {
+                mode = "safety";
+            } else if (parameters.delete) {
+                mode = "delete";
+            } else if (parameters.tag) {
+                mode = "tag";
+            }
+        }
+        return mode && available.includes(mode) ? mode : null;
+    }
+
     get _bulkEditTags() {
         return (this._ctx.parameters.tag || "").split(/\s+/).filter((s) => s);
     }
 
+    // ---- navigation ------------------------------------------------------
+
     _evtNavigate(e) {
-        router.showNoDispatch(
-            uri.formatClientLink("posts", e.detail.parameters)
-        );
         Object.assign(this._ctx.parameters, e.detail.parameters);
+        router.showNoDispatch(
+            uri.formatClientLink("posts", this._ctx.parameters)
+        );
         this._syncPageController();
     }
 
-    _evtTag(e) {
-        Promise.all(
-            this._bulkEditTags.map((tag) => e.detail.post.tags.addByName(tag))
-        )
-            .then(e.detail.post.save())
-            .catch((error) => window.alert(error.message));
-    }
-
-    _evtUntag(e) {
-        for (let tag of this._bulkEditTags) {
-            e.detail.post.tags.removeByName(tag);
-        }
-        e.detail.post.save().catch((error) => window.alert(error.message));
-    }
-
-    _evtChangeSafety(e) {
-        e.detail.post.safety = e.detail.safety;
-        e.detail.post.save().catch((error) => window.alert(error.message));
-    }
-
-    _evtMarkForDeletion(e) {
-        this._setMarkedForDeletion([e.detail.post], e.detail.delete);
-    }
-
-    // The array is handed to the page view through its render context, so it
-    // has to be updated in place - replacing it would leave the view looking at
-    // a stale copy.
-    _setMarkedForDeletion(posts, marked) {
-        for (let post of posts) {
-            const index = this._postsMarkedForDeletion.findIndex(
-                (x) => x.id == post.id
-            );
-            if (marked && index === -1) {
-                this._postsMarkedForDeletion.push(post);
-            } else if (!marked && index !== -1) {
-                this._postsMarkedForDeletion.splice(index, 1);
-            }
+    _evtChangeEditMode(e) {
+        if (this._postsPageView) {
+            this._postsPageView.setEditMode(e.detail.editMode);
         }
     }
 
-    // ---- actions on a selection of posts ---------------------------------
+    // Switching mode changes which overlay the thumbnails carry, so the page
+    // is re-rendered - but from the posts already loaded, not refetched.
+    _evtChangeMode(e) {
+        this._ctx.parameters.mode = e.detail.mode;
+        this._ctx.parameters.safety = null;
+        this._ctx.parameters.delete = null;
+        router.showNoDispatch(
+            uri.formatClientLink("posts", this._ctx.parameters)
+        );
+        this._syncPageController();
+    }
 
-    _runOnSelection(posts, worker, describeSuccess) {
+    _evtChangeBulkTags(e) {
+        this._ctx.parameters.tag = e.detail.tags.join(" ");
+        router.showNoDispatch(
+            uri.formatClientLink("posts", this._ctx.parameters)
+        );
+    }
+
+    // ---- batch actions ---------------------------------------------------
+
+    _runOnPosts(posts, worker, describeSuccess) {
         if (!posts.length) {
             return Promise.resolve();
         }
@@ -194,45 +198,51 @@ class PostListController {
             });
     }
 
-    _evtBulkTag(e) {
-        const tags = this._bulkEditTags;
-        if (!tags.length) {
+    // One button for both directions: if every selected post already carries
+    // every tag, the obvious intent is to take them off again.
+    _evtApplyTags(e) {
+        const tags = e.detail.tags;
+        const posts = e.detail.posts;
+        if (!tags.length || !posts.length) {
             return;
         }
-        this._runOnSelection(
-            e.detail.posts,
-            (post) =>
-                Promise.all(tags.map((tag) => post.tags.addByName(tag))).then(
-                    () => post.save()
-                ),
-            (count) => `Tagged ${count} post(s) with ${tags.join(" ")}.`
+        const allTagged = posts.every((post) =>
+            tags.every((tag) => post.tags.isTaggedWith(tag))
         );
-    }
 
-    _evtBulkUntag(e) {
-        const tags = this._bulkEditTags;
-        if (!tags.length) {
-            return;
+        if (allTagged) {
+            this._runOnPosts(
+                posts,
+                (post) => {
+                    for (let tag of tags) {
+                        post.tags.removeByName(tag);
+                    }
+                    return post.save();
+                },
+                (count) => `Removed ${tags.join(" ")} from ${count} post(s).`
+            );
+        } else {
+            this._runOnPosts(
+                posts,
+                (post) =>
+                    Promise.all(
+                        tags.map((tag) => post.tags.addByName(tag))
+                    ).then(() => post.save()),
+                (count) => `Tagged ${count} post(s) with ${tags.join(" ")}.`
+            );
         }
-        this._runOnSelection(
-            e.detail.posts,
-            (post) => {
-                for (let tag of tags) {
-                    post.tags.removeByName(tag);
-                }
-                return post.save();
-            },
-            (count) => `Removed ${tags.join(" ")} from ${count} post(s).`
-        );
     }
 
-    _evtBulkChangeSafety(e) {
+    _evtApplySafety(e) {
         const safety = e.detail.safety;
         const posts = e.detail.posts.filter((post) => post.safety !== safety);
         if (!posts.length) {
+            this._pageController.view.showInfo(
+                `Every selected post is already ${safety}.`
+            );
             return;
         }
-        this._runOnSelection(
+        this._runOnPosts(
             posts,
             (post) => {
                 post.safety = safety;
@@ -242,18 +252,48 @@ class PostListController {
         );
     }
 
-    _evtBulkMarkForDeletion(e) {
-        this._setMarkedForDeletion(e.detail.posts, e.detail.delete);
+    _evtDeleteSelected(e) {
+        const posts = e.detail.posts;
+        this._runOnPosts(
+            posts,
+            (post) => post.delete(),
+            (count) => `Deleted ${count} post(s).`
+        ).then(() => {
+            this._postsMarkedForDeletion.length = 0;
+            // the deleted thumbnails are still on screen, and the page is now
+            // short, so reload it rather than leaving gaps behind
+            this._syncPageController();
+        });
+    }
+
+    _evtMarkForDeletion(e) {
+        this._setMarkedForDeletion([e.detail.post], e.detail.delete);
         if (this._postsPageView) {
             this._postsPageView.refreshHighlights();
         }
-        const view = this._pageController.view;
-        view.clearMessages();
-        view.showInfo(
-            e.detail.delete
-                ? `${this._postsMarkedForDeletion.length} post(s) marked for deletion. Use "Delete selected posts" in the header to confirm.`
-                : `${this._postsMarkedForDeletion.length} post(s) still marked for deletion.`
-        );
+    }
+
+    _evtClearDeleteMarks() {
+        this._postsMarkedForDeletion.length = 0;
+        if (this._postsPageView) {
+            this._postsPageView.refreshHighlights();
+        }
+    }
+
+    // The array is handed to the page view through its render context, so it
+    // has to be updated in place - replacing it would leave the view looking
+    // at a stale copy.
+    _setMarkedForDeletion(posts, marked) {
+        for (let post of posts) {
+            const index = this._postsMarkedForDeletion.findIndex(
+                (x) => x.id == post.id
+            );
+            if (marked && index === -1) {
+                this._postsMarkedForDeletion.push(post);
+            } else if (!marked && index !== -1) {
+                this._postsMarkedForDeletion.splice(index, 1);
+            }
+        }
     }
 
     _evtCreatePool(e) {
@@ -273,7 +313,7 @@ class PostListController {
                         `with ${posts.length} post(s).`
                 );
                 if (this._postsPageView) {
-                    this._postsPageView.clearSelection();
+                    this._postsPageView.poolCreated();
                 }
             },
             (error) => {
@@ -286,24 +326,7 @@ class PostListController {
         this._pageController.view.showError(e.detail.message);
     }
 
-    _evtDeleteSelectedPosts(e) {
-        if (this._postsMarkedForDeletion.length == 0) return;
-
-        if (
-            confirm(
-                `Are you sure you want to delete ${this._postsMarkedForDeletion.length} posts?`
-            )
-        ) {
-            Promise.all(
-                this._postsMarkedForDeletion.map((post) => post.delete())
-            )
-                .catch((error) => window.alert(error.message))
-                .then(() => {
-                    this._postsMarkedForDeletion = [];
-                    this._headerView._navigate();
-                });
-        }
-    }
+    // ---- rendering -------------------------------------------------------
 
     _syncPageController() {
         this._pageController.run({
@@ -325,15 +348,6 @@ class PostListController {
                 );
             },
             pageRenderer: (pageCtx) => {
-                const canBulkEditTags = api.hasPrivilege(
-                    "posts:bulk-edit:tags"
-                );
-                const canBulkEditSafety = api.hasPrivilege(
-                    "posts:bulk-edit:safety"
-                );
-                const canBulkDelete = api.hasPrivilege(
-                    "posts:bulk-edit:delete"
-                );
                 const canCreatePool = api.hasPrivilege("pools:create");
                 const poolCategories = {};
                 let defaultPoolCategory = "";
@@ -343,23 +357,28 @@ class PostListController {
                         defaultPoolCategory = category.name;
                     }
                 }
+
                 Object.assign(pageCtx, {
                     canViewPosts: api.hasPrivilege("posts:view"),
                     enableSafety: api.safetyEnabled(),
-                    canBulkEditTags: canBulkEditTags,
-                    canBulkEditSafety: canBulkEditSafety,
-                    canBulkDelete: canBulkDelete,
+                    canBulkEditTags: api.hasPrivilege("posts:bulk-edit:tags"),
+                    canBulkEditSafety: api.hasPrivilege(
+                        "posts:bulk-edit:safety"
+                    ),
+                    canBulkDelete: api.hasPrivilege("posts:bulk-edit:delete"),
                     canCreatePool: canCreatePool,
+                    canSelect: this._availableModes.length > 0,
+                    mode: this._mode,
+                    editMode: this._editMode,
+                    bulkEditTags: this._bulkEditTags.join(" "),
                     poolCategories: poolCategories,
                     defaultPoolCategory: defaultPoolCategory,
-                    editMode: this._editMode,
-                    canSelect: this._canSelect,
                     bulkEdit: {
-                        tags: this._bulkEditTags,
                         markedForDeletion: this._postsMarkedForDeletion,
                     },
                     postFlow: settings.get().postFlow,
                 });
+
                 const view = new PostsPageView(pageCtx);
                 this._postsPageView = view;
                 if (canCreatePool && this._poolCategoryError) {
@@ -369,23 +388,24 @@ class PostListController {
                     );
                     this._poolCategoryError = null;
                 }
-                view.addEventListener("tag", (e) => this._evtTag(e));
-                view.addEventListener("untag", (e) => this._evtUntag(e));
-                view.addEventListener("changeSafety", (e) =>
-                    this._evtChangeSafety(e)
+
+                view.addEventListener("applyTags", (e) =>
+                    this._evtApplyTags(e)
+                );
+                view.addEventListener("applySafety", (e) =>
+                    this._evtApplySafety(e)
+                );
+                view.addEventListener("deleteSelected", (e) =>
+                    this._evtDeleteSelected(e)
                 );
                 view.addEventListener("markForDeletion", (e) =>
                     this._evtMarkForDeletion(e)
                 );
-                view.addEventListener("bulkTag", (e) => this._evtBulkTag(e));
-                view.addEventListener("bulkUntag", (e) =>
-                    this._evtBulkUntag(e)
+                view.addEventListener("clearDeleteMarks", () =>
+                    this._evtClearDeleteMarks()
                 );
-                view.addEventListener("bulkChangeSafety", (e) =>
-                    this._evtBulkChangeSafety(e)
-                );
-                view.addEventListener("bulkMarkForDeletion", (e) =>
-                    this._evtBulkMarkForDeletion(e)
+                view.addEventListener("changeBulkTags", (e) =>
+                    this._evtChangeBulkTags(e)
                 );
                 view.addEventListener("createPool", (e) =>
                     this._evtCreatePool(e)

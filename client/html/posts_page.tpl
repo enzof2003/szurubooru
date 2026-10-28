@@ -37,24 +37,12 @@
                             </span>
                         <% } %>
                     </a>
-                    <span class='edit-overlay'>
-                        <% if (ctx.canBulkEditTags && ctx.parameters && ctx.parameters.tag) { %>
-                            <a href class='tag-flipper'>
+                    <% if (ctx.canBulkDelete && ctx.mode === 'delete') { %>
+                        <span class='edit-overlay'>
+                            <a href class='delete-flipper' title='Mark this post for deletion; marks survive changing page'>
                             </a>
-                        <% } %>
-                        <% if (ctx.canBulkEditSafety && ctx.parameters && ctx.parameters.safety) { %>
-                            <span class='safety-flipper'>
-                                <% for (let safety of ['safe', 'sketchy', 'unsafe']) { %>
-                                    <a href data-safety='<%- safety %>' class='safety-<%- safety %><%- post.safety === safety ? ' active' : '' %>'>
-                                    </a>
-                                <% } %>
-                            </span>
-                        <% } %>
-                        <% if (ctx.canBulkDelete && ctx.parameters && ctx.parameters.delete) { %>
-                            <a href class='delete-flipper'>
-                            </a>
-                        <% } %>
-                    </span>
+                        </span>
+                    <% } %>
                 </li>
             <% } %>
             <%= ctx.makeFlexboxAlign() %>
@@ -63,51 +51,92 @@
     <% if (ctx.canSelect) { %>
         <div class='post-selection-bar' hidden>
             <div class='bar-row primary'>
-                <span class='summary'><span class='count'>0</span> selected</span>
-                <span class='actions'>
-                    <% if (ctx.canBulkEditTags && ctx.parameters && ctx.parameters.tag) { %>
-                        <a href class='button tag-selected'>Add tags</a>
-                        <a href class='button untag-selected'>Remove tags</a>
-                    <% } %>
-                    <% if (ctx.enableSafety && ctx.canBulkEditSafety && ctx.parameters && ctx.parameters.safety) { %>
-                        <span class='safety-selected'>
-                            <% for (let safety of ['safe', 'sketchy', 'unsafe']) { %>
-                                <a href data-safety='<%- safety %>' class='safety-<%- safety %>' title='Set selection to <%- safety %>'></a>
-                            <% } %>
-                        </span>
-                    <% } %>
-                    <% if (ctx.canBulkDelete && ctx.parameters && ctx.parameters.delete) { %>
-                        <a href class='button mark-selected-deleted'>Mark for deletion</a>
-                        <a href class='button unmark-selected-deleted'>Unmark</a>
-                    <% } %>
-                    <% if (ctx.canCreatePool) { %>
-                        <a href class='button open-create-pool'>Create pool&hellip;</a>
-                    <% } %>
-                    <a href class='button select-all'>Select all</a>
-                    <a href class='button clear-selection'>Clear</a>
+                <span class='summary'>
+                    <span class='count'>0</span> selected<span class='marked-summary' hidden> &middot; <span class='marked-count'>0</span> marked</span>
                 </span>
+                <a href class='button select-all'>Select all</a>
+                <a href class='button clear-selection'>Clear</a>
                 <span class='hint'>drag to select &middot; ctrl+click toggles &middot; shift+click for a range &middot; esc clears</span>
             </div>
-            <% if (ctx.canCreatePool) { %>
-                <form class='create-pool-from-selection' hidden>
-                    <div class='bar-row pool-fields'>
-                        <%= ctx.makeTextInput({name: 'pool-name', placeholder: 'pool name', required: true}) %>
-                        <%= ctx.makeSelect({name: 'pool-category', keyValues: ctx.poolCategories, selectedKey: ctx.defaultPoolCategory}) %>
-                        <label class='custom-order'>
-                            <input type='checkbox' name='custom-order'/>
-                            <span class='checkbox'>custom order</span>
-                        </label>
-                        <%= ctx.makeTextInput({name: 'pool-order', placeholder: 'post IDs in page order', hidden: true}) %>
+
+            <div class='mode-panel panel-none'>
+                <div class='bar-row'>
+                    <span class='notice'>Pick a batch mode above to act on the selection.</span>
+                </div>
+            </div>
+
+            <% if (ctx.canBulkEditTags) { %>
+                <div class='mode-panel panel-tag' hidden>
+                    <div class='bar-row'>
+                        <%= ctx.makeTextInput({name: 'bulk-tag', value: ctx.bulkEditTags, placeholder: 'tags to apply, space separated'}) %>
                     </div>
-                    <div class='bar-row pool-confirm'>
-                        <span class='pool-buttons'>
-                            <input type='submit' class='confirm' value='Confirm creation'/>
-                            <a href class='button swap-pool-order'>Swap order</a>
-                            <a href class='button cancel-create-pool'>Cancel</a>
+                    <div class='bar-row'>
+                        <a href class='button apply-tags'>Apply tags</a>
+                        <span class='hint'>posts that already have every tag get them removed instead</span>
+                    </div>
+                </div>
+            <% } %>
+
+            <% if (ctx.enableSafety && ctx.canBulkEditSafety) { %>
+                <div class='mode-panel panel-safety' hidden>
+                    <div class='bar-row'>
+                        <span class='safety-picker'>
+                            <% for (let safety of ['safe', 'sketchy', 'unsafe']) { %>
+                                <a href data-safety='<%- safety %>' class='safety-<%- safety %>' title='<%- safety %>'></a>
+                            <% } %>
                         </span>
-                        <span class='hint pool-hint'>the number on each thumbnail is its page order</span>
+                        <span class='safety-chosen'>no rating picked</span>
                     </div>
-                </form>
+                    <div class='bar-row'>
+                        <a href class='button apply-safety'>Apply</a>
+                    </div>
+                </div>
+            <% } %>
+
+            <% if (ctx.canBulkDelete) { %>
+                <div class='mode-panel panel-delete' hidden>
+                    <div class='bar-row'>
+                        <span class='notice delete-notice'></span>
+                    </div>
+                    <div class='bar-row'>
+                        <span class='delete-stage-1'>
+                            <a href class='button danger request-delete'>Delete posts</a>
+                        </span>
+                        <span class='delete-stage-2' hidden>
+                            <a href class='button danger confirm-delete'>Yes, permanently delete</a>
+                            <a href class='button cancel-delete'>Cancel</a>
+                        </span>
+                        <a href class='button clear-marks' hidden>Clear marks</a>
+                    </div>
+                </div>
+            <% } %>
+
+            <% if (ctx.canCreatePool) { %>
+                <div class='mode-panel panel-pool' hidden>
+                    <form class='create-pool-from-selection'>
+                        <div class='bar-row pool-naming'>
+                            <%= ctx.makeTextInput({name: 'pool-name', placeholder: 'pool name', required: true}) %>
+                            <%= ctx.makeSelect({name: 'pool-category', keyValues: ctx.poolCategories, selectedKey: ctx.defaultPoolCategory}) %>
+                        </div>
+                        <div class='bar-row pool-ordering' hidden>
+                            <span class='pool-summary'></span>
+                            <a href class='button swap-pool-order'>Swap order</a>
+                            <label class='custom-order'>
+                                <input type='checkbox' name='custom-order'/>
+                                <span class='checkbox'>custom order</span>
+                            </label>
+                            <%= ctx.makeTextInput({name: 'pool-order', placeholder: 'post IDs in page order', hidden: true}) %>
+                        </div>
+                        <div class='bar-row pool-actions'>
+                            <a href class='button start-pool-order'>Create pool</a>
+                            <span class='pool-confirm-buttons' hidden>
+                                <input type='submit' class='confirm' value='Confirm creation'/>
+                                <a href class='button cancel-pool-order'>Back</a>
+                            </span>
+                            <span class='hint pool-hint' hidden>the number on each thumbnail is its page order</span>
+                        </div>
+                    </form>
+                </div>
             <% } %>
         </div>
     <% } %>

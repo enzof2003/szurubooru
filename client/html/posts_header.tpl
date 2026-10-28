@@ -1,6 +1,6 @@
 <div class='post-list-header<%- ctx.editMode ? ' edit-mode' : '' %>'><%
     %><% if (ctx.canUseEditMode) { %><%
-        %><a href class='mousetrap button append edit-mode-toggle<%- ctx.editMode ? ' active' : '' %>' title='Show the mass editing tools and allow drag-selecting posts'><%
+        %><a href class='mousetrap button append edit-mode-toggle<%- ctx.editMode ? ' active' : '' %>' title='Show the batch editing tools and allow drag-selecting posts'><%
             %><i class='fa fa-pencil'></i> Edit mode<%
         %></a><%
     %><% } %><%
@@ -17,26 +17,12 @@
         %><wbr/><%
         %><a class='mousetrap button append' href='<%- ctx.formatClientLink('help', 'search', 'posts') %>'>Syntax help</a><%
     %></form><%
-    %><% if (ctx.canBulkEditTags) { %><%
-        %><form class='horizontal bulk-edit bulk-edit-tags'><%
-            %><span class='append hint'>Tagging with:</span><%
-            %><a href class='mousetrap button append open'>Mass tag</a><%
-            %><%= ctx.makeTextInput({name: 'tag', value: ctx.parameters.tag}) %><%
-            %><input class='mousetrap start' type='submit' value='Start tagging'/><%
-            %><a href class='mousetrap button append close'>Stop tagging</a><%
-        %></form><%
-    %><% } %><%
-    %><% if (ctx.enableSafety && ctx.canBulkEditSafety) { %><%
-        %><form class='horizontal bulk-edit bulk-edit-safety'><%
-            %><a href class='mousetrap button append open'>Mass edit safety</a><%
-            %><a href class='mousetrap button append close'>Stop editing safety</a><%
-        %></form><%
-    %><% } %><%
-    %><% if (ctx.canBulkDelete) { %><%
-        %><form class='horizontal bulk-edit bulk-edit-delete'><%
-            %><a href class='mousetrap button append open'>Mass delete</a><%
-            %><input class='mousetrap start' type='submit' value='Delete selected posts'/><%
-            %><a href class='mousetrap button append close'>Stop deleting</a><%
-        %></form><%
+    %><% if (ctx.availableModes.length) { %><%
+        %><div class='batch-modes'><%
+            %><span class='append hint'>Batch mode:</span><%
+            %><% for (let mode of ctx.availableModes) { %><%
+                %><a href class='mousetrap button append batch-mode<%- ctx.mode === mode.key ? ' active' : '' %>' data-mode='<%- mode.key %>'><%- mode.label %></a><%
+            %><% } %><%
+        %></div><%
     %><% } %><%
 %></div>

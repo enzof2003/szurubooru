@@ -59,61 +59,6 @@
                 top: 0.5em
                 left: 0.5em
 
-                .tag-flipper
-                    display: inline-block
-                    padding: 0.5em
-                    box-sizing: border-box
-                    border: 0
-                    &:after
-                        display: inline-block
-                        width: 1em
-                        height: 1em
-                        text-align: center
-                        line-height: 1em
-                        font-size: 2.2em
-                    &.tagged
-                        background: rgba(0, 230, 0, 0.7)
-                        &:after
-                            color: white
-                            content: '-'
-                    &:not(.tagged)
-                        background: rgba(255, 0, 0, 0.7)
-                        &:after
-                            color: white
-                            content: '+'
-                    &[data-disabled]
-                        background: rgba(200, 200, 200, 0.7)
-
-                .safety-flipper a
-                    display: inline-block
-                    margin: 0.1em
-                    box-sizing: border-box
-                    border: 0
-                    display: inline-block
-                    width: 1.2em
-                    height: 1.2em
-                    text-align: center
-                    line-height: 1em
-                    font-size: 1.6em
-                    border: 3px solid
-                    &.safety-safe
-                        background-color: darken($safety-safe, 5%)
-                        border-color: @background-color
-                        &:not(.active)
-                            background-color: alpha(@background-color, 0.3)
-                    &.safety-sketchy
-                        background-color: $safety-sketchy
-                        border-color: @background-color
-                        &:not(.active)
-                            background-color: alpha(@background-color, 0.3)
-                    &.safety-unsafe
-                        background-color: $safety-unsafe
-                        border-color: @background-color
-                        &:not(.active)
-                            background-color: alpha(@background-color, 0.3)
-                    &[data-disabled]
-                        background: rgba(200, 200, 200, 0.7)
-
                 .delete-flipper
                     display: inline-block
                     padding: 0.5em
@@ -327,6 +272,8 @@
         .thumbnail
             outline: 2px solid $main-color !important
 
+// ---- the selection bar --------------------------------------------------
+
 .post-selection-bar
     position: fixed
     z-index: 20
@@ -348,20 +295,32 @@
         gap: 0.4em
         &:not(:first-child)
             margin-top: 0.4em
+    .mode-panel > .bar-row
+        margin-top: 0.4em
 
     .summary
         font-weight: bold
         white-space: nowrap
-        .count
+        .count,
+        .marked-count
             color: $main-color
 
-    .actions
-        display: flex
-        flex-wrap: wrap
-        align-items: center
-        gap: 0.4em
-        a.button
-            margin: 0
+    a.button,
+    input[type=submit]
+        margin: 0
+    a.button.disabled
+        background: $button-disabled-background-color
+        color: $button-disabled-text-color
+    a.button.danger
+        background: $post-thumbnail-no-tags-border-color
+        color: white
+
+    .notice
+        font-size: 0.95em
+        color: $inactive-link-color
+        &.danger
+            color: $post-thumbnail-no-tags-border-color
+            font-weight: bold
 
     // pushes the tip to the right edge of the bar
     .hint
@@ -371,25 +330,38 @@
         color: $inactive-link-color
         white-space: nowrap
 
-    .safety-selected
+    input[name=bulk-tag]
+        flex: 1 1 24em
+        min-width: 12em
+
+    .safety-picker
         display: inline-flex
         align-items: center
         a
             display: inline-block
-            width: 1.2em
-            height: 1.2em
-            margin: 0 0.1em
+            width: 1.4em
+            height: 1.4em
+            margin: 0 0.15em
             box-sizing: border-box
             border: 3px solid
             &.safety-safe
                 background-color: $safety-safe
                 border-color: @background-color
+                &:not(.active)
+                    background-color: alpha(@background-color, 0.25)
             &.safety-sketchy
                 background-color: $safety-sketchy
                 border-color: @background-color
+                &:not(.active)
+                    background-color: alpha(@background-color, 0.25)
             &.safety-unsafe
                 background-color: $safety-unsafe
                 border-color: @background-color
+                &:not(.active)
+                    background-color: alpha(@background-color, 0.25)
+    .safety-chosen
+        font-size: 0.95em
+        color: $inactive-link-color
 
     .create-pool-from-selection
         width: 100%
@@ -397,29 +369,26 @@
 
         input[name=pool-name]
             width: 16em
-            margin: 0
         select[name=pool-category]
             margin: 0
         input[name=pool-order]
             flex: 1 1 18em
             min-width: 12em
-            margin: 0
             font-family: monospace
             &.invalid
                 border-color: $input-bad-border-color
                 background: $input-bad-background-color
         label.custom-order
-            margin: 0 0.2em
             font-size: 0.95em
             white-space: nowrap
-        .pool-buttons
+        .pool-summary
+            font-weight: bold
+            white-space: nowrap
+        .pool-confirm-buttons
             display: flex
             flex-wrap: wrap
             align-items: center
             gap: 0.4em
-            input.confirm,
-            a.button
-                margin: 0
 
     @media (max-width: 1000px)
         .hint
@@ -432,12 +401,14 @@
 .darktheme .post-selection-bar
     background: $window-color-darktheme
     border-top-color: rgba(255, 255, 255, 0.15)
-    .hint
+    .hint,
+    .notice,
+    .safety-chosen
         color: $inactive-link-color-darktheme
 
 // ---- edit mode ----------------------------------------------------------
 
-// The mass editing forms are only offered while edit mode is on, so ordinary
+// The batch tools are only offered while edit mode is on, so ordinary
 // browsing is not cluttered by tools that need a selection.
 .post-list-header
     .edit-mode-toggle
@@ -446,6 +417,13 @@
         &.active
             background: $main-color
             color: $button-enabled-text-color
+    .batch-modes
+        margin-bottom: 0.75em
+        .hint
+            margin-right: 0.5em
+        .batch-mode.active
+            background: $main-color
+            color: $button-enabled-text-color
     &:not(.edit-mode)
-        .bulk-edit
+        .batch-modes
             display: none
