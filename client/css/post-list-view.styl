@@ -356,6 +356,19 @@
                 background-color: $safety-unsafe
                 border-color: @background-color
 
+    .create-pool-from-selection
+        margin-top: 0.5em
+        input[name=pool-name]
+            width: 18em
+            margin-right: 0.4em
+        select
+            margin-right: 0.4em
+        @media (max-width: 1000px)
+            input[name=pool-name]
+                display: block
+                width: 100%
+                margin-bottom: 0.4em
+
     .hint
         display: block
         margin-top: 0.4em

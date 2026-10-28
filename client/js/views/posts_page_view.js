@@ -3,6 +3,7 @@
 const events = require("../events.js");
 const keyboard = require("../util/keyboard.js");
 const views = require("../util/views.js");
+const PoolCategoryList = require("../models/pool_category_list.js");
 const PostSelectionControl = require("../controls/post_selection_control.js");
 
 const template = views.getTemplate("posts-page");
@@ -70,6 +71,10 @@ class PostsPageView extends events.EventTarget {
         return this._hostNode.querySelector(".post-selection-bar");
     }
 
+    get _createPoolFormNode() {
+        return this._hostNode.querySelector(".create-pool-from-selection");
+    }
+
     _getTagFlipperNode(listItemNode) {
         return listItemNode.querySelector(".tag-flipper");
     }
@@ -133,6 +138,16 @@ class PostsPageView extends events.EventTarget {
         );
         bind(".select-all", () => this._selectionControl.selectAll());
         bind(".clear-selection", () => this._selectionControl.clear());
+        bind(".open-create-pool", () => this._showCreatePoolForm());
+        bind(".cancel-create-pool", () => this._hideCreatePoolForm());
+
+        const formNode = this._createPoolFormNode;
+        if (formNode) {
+            formNode.addEventListener("submit", (e) =>
+                this._evtCreatePoolSubmit(e)
+            );
+        }
+
         keyboard.bind("esc", () => {
             if (this._selectionControl.count) {
                 this._selectionControl.clear();
@@ -198,6 +213,108 @@ class PostsPageView extends events.EventTarget {
             countNode.textContent = count;
         }
         barNode.hidden = count === 0;
+        if (!count) {
+            this._hideCreatePoolForm();
+        }
+    }
+
+    _showCreatePoolForm() {
+        const formNode = this._createPoolFormNode;
+        if (!formNode) {
+            return;
+        }
+        formNode.hidden = false;
+        this._loadPoolCategories().then(
+            () => {
+                const nameNode = formNode.querySelector(
+                    "input[name=pool-name]"
+                );
+                if (nameNode) {
+                    nameNode.focus();
+                }
+            },
+            (error) => {
+                this.dispatchEvent(
+                    new CustomEvent("error", {
+                        detail: { message: error.message },
+                    })
+                );
+            }
+        );
+    }
+
+    _hideCreatePoolForm() {
+        const formNode = this._createPoolFormNode;
+        if (!formNode) {
+            return;
+        }
+        formNode.hidden = true;
+        const nameNode = formNode.querySelector("input[name=pool-name]");
+        if (nameNode) {
+            nameNode.value = "";
+        }
+    }
+
+    // Categories are only needed once the user actually reaches for the pool
+    // form, so they are not fetched on every post list render.
+    _loadPoolCategories() {
+        if (this._poolCategoriesPromise) {
+            return this._poolCategoriesPromise;
+        }
+        this._poolCategoriesPromise = PoolCategoryList.get().then(
+            (response) => {
+                const formNode = this._createPoolFormNode;
+                const selectNode = formNode
+                    ? formNode.querySelector("select[name=pool-category]")
+                    : null;
+                if (selectNode) {
+                    views.emptyContent(selectNode);
+                    for (let category of response.results) {
+                        const optionNode = document.createElement("option");
+                        optionNode.value = category.name;
+                        optionNode.textContent = category.name;
+                        optionNode.selected = category.isDefault;
+                        selectNode.appendChild(optionNode);
+                    }
+                }
+                return response;
+            },
+            (error) => {
+                // let the next attempt retry instead of caching the failure
+                this._poolCategoriesPromise = null;
+                return Promise.reject(error);
+            }
+        );
+        return this._poolCategoriesPromise;
+    }
+
+    _evtCreatePoolSubmit(e) {
+        e.preventDefault();
+        const formNode = this._createPoolFormNode;
+        const nameNode = formNode.querySelector("input[name=pool-name]");
+        const categoryNode = formNode.querySelector(
+            "select[name=pool-category]"
+        );
+        const name = (nameNode ? nameNode.value : "").trim();
+        if (!name) {
+            if (nameNode) {
+                nameNode.focus();
+            }
+            return;
+        }
+        const posts = this.selectedPosts;
+        if (!posts.length) {
+            return;
+        }
+        this.dispatchEvent(
+            new CustomEvent("createPool", {
+                detail: {
+                    posts: posts,
+                    names: [name],
+                    category: categoryNode ? categoryNode.value : "default",
+                },
+            })
+        );
     }
 
     // ---- per-post bulk editors -------------------------------------------

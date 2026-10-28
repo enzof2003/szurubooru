@@ -79,9 +79,22 @@
                     <a href class='button mark-selected-deleted'>Mark for deletion</a>
                     <a href class='button unmark-selected-deleted'>Unmark</a>
                 <% } %>
+                <% if (ctx.canCreatePool) { %>
+                    <a href class='button open-create-pool'>Create pool&hellip;</a>
+                <% } %>
                 <a href class='button select-all'>Select all</a>
                 <a href class='button clear-selection'>Clear</a>
             </span>
+            <% if (ctx.canCreatePool) { %>
+                <form class='create-pool-from-selection' hidden>
+                    <%= ctx.makeTextInput({name: 'pool-name', placeholder: 'pool name', required: true}) %>
+                    <span class='category-holder'>
+                        <%= ctx.makeSelect({name: 'pool-category', keyValues: {}, selectedKey: ''}) %>
+                    </span>
+                    <input type='submit' class='create' value='Create pool'/>
+                    <a href class='button cancel-create-pool'>Cancel</a>
+                </form>
+            <% } %>
             <span class='hint'>drag to select &middot; ctrl+click to toggle &middot; shift+click for a range &middot; esc to clear</span>
         </div>
     <% } %>

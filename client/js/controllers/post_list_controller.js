@@ -208,6 +208,32 @@ class PostListController {
         );
     }
 
+    _evtCreatePool(e) {
+        const posts = e.detail.posts;
+        const view = this._pageController.view;
+        view.clearMessages();
+        api.post(uri.formatApiLink("pool"), {
+            names: e.detail.names,
+            category: e.detail.category,
+            description: "",
+            posts: posts.map((post) => post.id),
+        }).then(
+            (response) => {
+                const poolLink = uri.formatClientLink("pool", response.id);
+                view.showSuccess(
+                    `Created pool [${response.names[0]}](${poolLink}) ` +
+                        `with ${posts.length} post(s).`
+                );
+                if (this._postsPageView) {
+                    this._postsPageView.clearSelection();
+                }
+            },
+            (error) => {
+                view.showError(error.message);
+            }
+        );
+    }
+
     _evtViewError(e) {
         this._pageController.view.showError(e.detail.message);
     }
@@ -260,16 +286,19 @@ class PostListController {
                 const canBulkDelete = api.hasPrivilege(
                     "posts:bulk-edit:delete"
                 );
+                const canCreatePool = api.hasPrivilege("pools:create");
                 Object.assign(pageCtx, {
                     canViewPosts: api.hasPrivilege("posts:view"),
                     enableSafety: api.safetyEnabled(),
                     canBulkEditTags: canBulkEditTags,
                     canBulkEditSafety: canBulkEditSafety,
                     canBulkDelete: canBulkDelete,
+                    canCreatePool: canCreatePool,
                     canSelect:
                         canBulkEditTags ||
                         canBulkEditSafety ||
-                        canBulkDelete,
+                        canBulkDelete ||
+                        canCreatePool,
                     bulkEdit: {
                         tags: this._bulkEditTags,
                         markedForDeletion: this._postsMarkedForDeletion,
@@ -295,6 +324,9 @@ class PostListController {
                 );
                 view.addEventListener("bulkMarkForDeletion", (e) =>
                     this._evtBulkMarkForDeletion(e)
+                );
+                view.addEventListener("createPool", (e) =>
+                    this._evtCreatePool(e)
                 );
                 view.addEventListener("error", (e) => this._evtViewError(e));
                 return view;
