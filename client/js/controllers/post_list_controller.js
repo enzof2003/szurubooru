@@ -178,24 +178,45 @@ class PostListController {
 
     // ---- batch actions ---------------------------------------------------
 
-    _runOnPosts(posts, worker, describeSuccess) {
+    // `warmUpFirst` saves the first post on its own before the rest run
+    // concurrently. A tag that does not exist yet is created by whichever
+    // request gets there first, and tag_name.name is unique with no locking
+    // around the server's read-then-insert - so firing four requests at a
+    // missing tag makes them all try to create it and the database rejects
+    // all but one. Doing one first means the tag exists for the others, and
+    // it also lets them pick up its implications.
+    _runOnPosts(posts, worker, describeSuccess, options) {
+        options = options || {};
         if (!posts.length) {
             return Promise.resolve();
         }
         const view = this._pageController.view;
         view.clearMessages();
-        return tasks
-            .runWithConcurrency(posts, worker, { concurrency: 4 })
-            .then((outcome) => {
-                const succeeded = posts.length - outcome.errors.length;
-                if (succeeded) {
-                    view.showSuccess(describeSuccess(succeeded));
-                }
-                const summary = tasks.summarizeErrors(outcome.errors);
-                if (summary) {
-                    view.showError(summary);
-                }
+
+        const run = (items, concurrency) =>
+            tasks.runWithConcurrency(items, worker, {
+                concurrency: concurrency,
             });
+
+        const outcome =
+            options.warmUpFirst && posts.length > 1
+                ? run(posts.slice(0, 1), 1).then((first) =>
+                      run(posts.slice(1), 4).then((rest) => ({
+                          errors: first.errors.concat(rest.errors),
+                      }))
+                  )
+                : run(posts, 4);
+
+        return outcome.then((result) => {
+            const succeeded = posts.length - result.errors.length;
+            if (succeeded) {
+                view.showSuccess(describeSuccess(succeeded));
+            }
+            const summary = tasks.summarizeErrors(result.errors);
+            if (summary) {
+                view.showError(summary);
+            }
+        });
     }
 
     // One button for both directions: if every selected post already carries
@@ -236,7 +257,8 @@ class PostListController {
                             post.tags.addByName(tag).catch(() => {})
                         )
                     ).then(() => post.save()),
-                (count) => `Tagged ${count} post(s) with ${tags.join(" ")}.`
+                (count) => `Tagged ${count} post(s) with ${tags.join(" ")}.`,
+                { warmUpFirst: true }
             );
         }
     }

@@ -253,28 +253,51 @@ function scan(checks, options) {
 function applyCheck(check, options) {
     options = options || {};
     const onProgress = options.onProgress || (() => {});
-    return fetchPosts(check.query, APPLY_CAP).then((found) =>
-        tasks
-            .runWithConcurrency(
-                found.posts,
-                (post) =>
-                    Promise.all(
-                        check.tags.map((tag) => post.tags.addByName(tag))
-                    ).then(() => post.save()),
-                {
-                    concurrency: options.concurrency || 4,
-                    onProgress: onProgress,
-                    isCancelled: options.isCancelled,
-                }
-            )
-            .then((outcome) => ({
-                attempted: found.posts.length,
-                total: found.total,
-                truncated: found.total > found.posts.length,
-                failed: outcome.errors.length,
-                errors: outcome.errors,
-            }))
-    );
+    const concurrency = options.concurrency || 4;
+
+    const applyToPost = (post) =>
+        Promise.all(
+            // addByName() adds the tag immediately and only then looks it up
+            // for implications; for a tag that does not exist yet that lookup
+            // fails, and letting it reject would stop the post being saved.
+            check.tags.map((tag) => post.tags.addByName(tag).catch(() => {}))
+        ).then(() => post.save());
+
+    return fetchPosts(check.query, APPLY_CAP).then((found) => {
+        const posts = found.posts;
+        let finished = 0;
+        const bumpProgress = () => {
+            finished += 1;
+            onProgress(finished, posts.length);
+        };
+        const run = (items, limit) =>
+            tasks.runWithConcurrency(items, applyToPost, {
+                concurrency: limit,
+                onProgress: bumpProgress,
+                isCancelled: options.isCancelled,
+            });
+
+        // The first post goes on its own: if the rule names a tag that does
+        // not exist yet, that request creates it. Running the batch
+        // concurrently against a missing tag makes every request try to
+        // create it, and tag_name.name is unique, so all but one fail.
+        const outcome =
+            posts.length > 1
+                ? run(posts.slice(0, 1), 1).then((first) =>
+                      run(posts.slice(1), concurrency).then((rest) => ({
+                          errors: first.errors.concat(rest.errors),
+                      }))
+                  )
+                : run(posts, concurrency);
+
+        return outcome.then((result) => ({
+            attempted: posts.length,
+            total: found.total,
+            truncated: found.total > posts.length,
+            failed: result.errors.length,
+            errors: result.errors,
+        }));
+    });
 }
 
 module.exports = {
