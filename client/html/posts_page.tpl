@@ -54,8 +54,8 @@
                 <span class='summary'>
                     <span class='count'>0</span> selected<span class='marked-summary' hidden> &middot; <span class='marked-count'>0</span> marked</span>
                 </span>
-                <a href class='button select-all'>Select all</a>
-                <a href class='button clear-selection'>Clear</a>
+                <button type='button' class='select-all'>Select all</button>
+                <button type='button' class='clear-selection'>Clear</button>
                 <span class='hint'>drag to select &middot; ctrl+click toggles &middot; shift+click for a range &middot; esc clears</span>
             </div>
 
@@ -67,13 +67,15 @@
 
             <% if (ctx.canBulkEditTags) { %>
                 <div class='mode-panel panel-tag' hidden>
+                    <form class='bulk-tag-form'>
                     <div class='bar-row'>
                         <%= ctx.makeTextInput({name: 'bulk-tag', value: ctx.bulkEditTags, placeholder: 'tags to apply, space separated'}) %>
                     </div>
                     <div class='bar-row'>
-                        <a href class='button apply-tags'>Apply tags</a>
+                        <button type='submit' class='apply-tags'>Apply tags</button>
                         <span class='hint'>posts that already have every tag get them removed instead</span>
                     </div>
+                    </form>
                 </div>
             <% } %>
 
@@ -88,7 +90,7 @@
                         <span class='safety-chosen'>no rating picked</span>
                     </div>
                     <div class='bar-row'>
-                        <a href class='button apply-safety'>Apply</a>
+                        <button type='button' class='apply-safety'>Apply</button>
                     </div>
                 </div>
             <% } %>
@@ -100,13 +102,13 @@
                     </div>
                     <div class='bar-row'>
                         <span class='delete-stage-1'>
-                            <a href class='button danger request-delete'>Delete posts</a>
+                            <button type='button' class='danger request-delete'>Delete posts</button>
                         </span>
                         <span class='delete-stage-2' hidden>
-                            <a href class='button danger confirm-delete'>Yes, permanently delete</a>
-                            <a href class='button cancel-delete'>Cancel</a>
+                            <button type='button' class='danger confirm-delete'>Yes, permanently delete</button>
+                            <button type='button' class='cancel-delete'>Cancel</button>
                         </span>
-                        <a href class='button clear-marks' hidden>Clear marks</a>
+                        <button type='button' class='clear-marks discourage' hidden>Clear marks</button>
                     </div>
                 </div>
             <% } %>
@@ -120,7 +122,7 @@
                         </div>
                         <div class='bar-row pool-ordering' hidden>
                             <span class='pool-summary'></span>
-                            <a href class='button swap-pool-order'>Swap order</a>
+                            <button type='button' class='swap-pool-order'>Swap order</button>
                             <label class='custom-order'>
                                 <input type='checkbox' name='custom-order'/>
                                 <span class='checkbox'>custom order</span>
@@ -128,10 +130,10 @@
                             <%= ctx.makeTextInput({name: 'pool-order', placeholder: 'post IDs in page order', hidden: true}) %>
                         </div>
                         <div class='bar-row pool-actions'>
-                            <a href class='button start-pool-order'>Create pool</a>
+                            <button type='button' class='start-pool-order'>Create pool</button>
                             <span class='pool-confirm-buttons' hidden>
                                 <input type='submit' class='confirm' value='Confirm creation'/>
-                                <a href class='button cancel-pool-order'>Back</a>
+                                <button type='button' class='cancel-pool-order discourage'>Back</button>
                             </span>
                             <span class='hint pool-hint' hidden>the number on each thumbnail is its page order</span>
                         </div>

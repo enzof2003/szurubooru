@@ -226,7 +226,15 @@ class PostListController {
                 posts,
                 (post) =>
                     Promise.all(
-                        tags.map((tag) => post.tags.addByName(tag))
+                        // addByName() puts the tag on the post straight away
+                        // and only then looks it up to pull in implications.
+                        // A tag that does not exist yet makes that lookup
+                        // fail, so the failure is swallowed deliberately -
+                        // otherwise brand new tags could never be applied,
+                        // and creating tags by mass tagging is the point.
+                        tags.map((tag) =>
+                            post.tags.addByName(tag).catch(() => {})
+                        )
                     ).then(() => post.save()),
                 (count) => `Tagged ${count} post(s) with ${tags.join(" ")}.`
             );

@@ -33,6 +33,15 @@ class AutoCompleteControl {
                 confirm: null,
                 delete: null,
                 getMatches: null,
+                // For inputs living in a position:fixed container (the post
+                // selection bar). The default maths is document-relative and
+                // compares against the body height, which for a long page
+                // concludes there is room below and draws the list off the
+                // bottom of the screen.
+                positionFixed: false,
+                // -1 forces the list above the input, 1 below; null picks
+                // whichever side has more room.
+                forceDirection: null,
             },
             options
         );
@@ -130,6 +139,9 @@ class AutoCompleteControl {
         this._suggestionDiv = views.htmlToDom(
             '<div class="autocomplete"><ul></ul></div>'
         );
+        if (this._options.positionFixed) {
+            this._suggestionDiv.style.position = "fixed";
+        }
         this._suggestionList = this._suggestionDiv.querySelector("ul");
         document.body.appendChild(this._suggestionDiv);
 
@@ -288,22 +300,32 @@ class AutoCompleteControl {
         this._suggestionDiv.style.top = "-9999px";
         this._show();
         const verticalShift = this._options.verticalShift;
+        const fixed = this._options.positionFixed;
         const inputRect = this._sourceInputNode.getBoundingClientRect();
         const bodyRect = document.body.getBoundingClientRect();
-        const viewPortHeight = bodyRect.bottom - bodyRect.top;
+        const viewPortHeight = fixed
+            ? window.innerHeight
+            : bodyRect.bottom - bodyRect.top;
         let listRect = this._suggestionDiv.getBoundingClientRect();
 
         // choose where to view the suggestions: if there's more space above
         // the input - draw the suggestions above it, otherwise below
         const direction =
-            inputRect.top + inputRect.height / 2 < viewPortHeight / 2 ? 1 : -1;
+            this._options.forceDirection ||
+            (inputRect.top + inputRect.height / 2 < viewPortHeight / 2
+                ? 1
+                : -1);
 
-        let x = inputRect.left - bodyRect.left;
+        // a fixed list is placed in viewport coordinates, so that it stays
+        // attached to an input that does not scroll with the document
+        const originTop = fixed ? 0 : bodyRect.top;
+        const originLeft = fixed ? 0 : bodyRect.left;
+        let x = inputRect.left - originLeft;
         let y =
             direction === 1
-                ? inputRect.bottom - bodyRect.top - verticalShift
+                ? inputRect.bottom - originTop - verticalShift
                 : inputRect.top -
-                  bodyRect.top -
+                  originTop -
                   listRect.height +
                   verticalShift;
 

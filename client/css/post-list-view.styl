@@ -288,6 +288,11 @@
     white-space: normal
     text-align: left
 
+    // display:flex below would otherwise override the [hidden] attribute,
+    // which is what switches the panels and the pool steps
+    [hidden]
+        display: none !important
+
     .bar-row
         display: flex
         flex-wrap: wrap
@@ -295,7 +300,9 @@
         gap: 0.4em
         &:not(:first-child)
             margin-top: 0.4em
-    .mode-panel > .bar-row
+    // descendant, not child: the tag and pool panels wrap their rows in a
+    // form so that Enter submits
+    .mode-panel .bar-row
         margin-top: 0.4em
 
     .summary
@@ -305,13 +312,11 @@
         .marked-count
             color: $main-color
 
-    a.button,
+    button,
     input[type=submit]
         margin: 0
-    a.button.disabled
-        background: $button-disabled-background-color
-        color: $button-disabled-text-color
-    a.button.danger
+    button.danger
+        border-color: $post-thumbnail-no-tags-border-color
         background: $post-thumbnail-no-tags-border-color
         color: white
 
@@ -415,15 +420,31 @@
         float: right
         margin-left: 1em
         &.active
+            border-color: $main-color
             background: $main-color
             color: $button-enabled-text-color
     .batch-modes
-        margin-bottom: 0.75em
+        display: inline-block
+        vertical-align: top
         .hint
-            margin-right: 0.5em
-        .batch-mode.active
-            background: $main-color
-            color: $button-enabled-text-color
+            margin-right: 0.3em
+            font-size: 0.95em
+            color: $inactive-link-color
+        .batch-mode
+            margin-right: 0.25em
+            margin-bottom: 0.25em
+            border-color: $button-disabled-background-color
+            background: $button-disabled-background-color
+            color: $button-disabled-text-color
+            &.active
+                border-color: $main-color
+                background: $main-color
+                color: $button-enabled-text-color
+    .edit-mode-toggle
+        margin-bottom: 0.25em
+        border-color: $button-disabled-background-color
+        background: $button-disabled-background-color
+        color: $button-disabled-text-color
     &:not(.edit-mode)
         .batch-modes
             display: none

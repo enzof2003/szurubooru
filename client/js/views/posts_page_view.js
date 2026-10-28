@@ -5,6 +5,7 @@ const keyboard = require("../util/keyboard.js");
 const views = require("../util/views.js");
 const PostSelectionControl = require("../controls/post_selection_control.js");
 const TagAutoCompleteControl = require("../controls/tag_auto_complete_control.js");
+const TagList = require("../models/tag_list.js");
 
 const template = views.getTemplate("posts-page");
 
@@ -140,11 +141,23 @@ class PostsPageView extends events.EventTarget {
             this._tagAutoCompleteControl = new TagAutoCompleteControl(
                 tagInputNode,
                 {
-                    confirm: (tag) =>
-                        this._tagAutoCompleteControl.replaceSelectedText(
-                            tag.names[0],
-                            true
-                        ),
+                    // Same behaviour as the mass tag field this replaces:
+                    // picking a suggestion also writes in the tags it implies.
+                    confirm: (tag) => {
+                        let tagList = new TagList();
+                        tagList.addByName(tag.names[0], true).then(
+                            () => tagList.map((t) => t.names[0]).join(" "),
+                            () => tag.names[0]
+                        ).then((tagText) => {
+                            this._tagAutoCompleteControl.replaceSelectedText(
+                                tagText,
+                                true
+                            );
+                        });
+                    },
+                    // the field sits in a position:fixed bar at the bottom
+                    positionFixed: true,
+                    forceDirection: -1,
                 }
             );
             // keep the tag list in the url so it survives changing page
@@ -155,6 +168,15 @@ class PostsPageView extends events.EventTarget {
                     })
                 )
             );
+        }
+
+        const tagFormNode = this._hostNode.querySelector(".bulk-tag-form");
+        if (tagFormNode) {
+            tagFormNode.addEventListener("submit", (e) => {
+                e.preventDefault();
+                this._tagAutoCompleteControl.hide();
+                this._evtApplyTags();
+            });
         }
 
         const customOrderNode = this._customOrderToggleNode;
@@ -345,7 +367,7 @@ class PostsPageView extends events.EventTarget {
                 : "no rating picked";
         }
         for (let node of panelNode.querySelectorAll(".apply-safety")) {
-            node.classList.toggle("disabled", !this._chosenSafety);
+            node.disabled = !this._chosenSafety;
         }
     }
 
@@ -404,7 +426,7 @@ class PostsPageView extends events.EventTarget {
         }
         for (let node of panelNode.querySelectorAll(".request-delete")) {
             node.textContent = `Delete ${targets.length} post(s)`;
-            node.classList.toggle("disabled", !targets.length);
+            node.disabled = !targets.length;
         }
         for (let node of panelNode.querySelectorAll(".confirm-delete")) {
             node.textContent = `Yes, permanently delete ${targets.length} post(s)`;
