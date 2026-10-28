@@ -6,6 +6,7 @@ const settings = require("../models/settings.js");
 const tasks = require("../util/tasks.js");
 const uri = require("../util/uri.js");
 const PostList = require("../models/post_list.js");
+const PoolCategoryList = require("../models/pool_category_list.js");
 const topNavigation = require("../models/top_navigation.js");
 const PageController = require("../controllers/page_controller.js");
 const PostsHeaderView = require("../views/posts_header_view.js");
@@ -46,12 +47,17 @@ class PostListController {
             canBulkEditTags: api.hasPrivilege("posts:bulk-edit:tags"),
             canBulkEditSafety: api.hasPrivilege("posts:bulk-edit:safety"),
             canBulkDelete: api.hasPrivilege("posts:bulk-edit:delete"),
+            canUseEditMode: this._canSelect,
+            editMode: this._editMode,
             bulkEdit: {
                 tags: this._bulkEditTags,
             },
         });
         this._headerView.addEventListener("navigate", (e) =>
             this._evtNavigate(e)
+        );
+        this._headerView.addEventListener("changeEditMode", (e) =>
+            this._evtChangeEditMode(e)
         );
 
         if (this._headerView._bulkDeleteEditor) {
@@ -65,7 +71,49 @@ class PostListController {
 
         this._postsMarkedForDeletion = [];
         this._postsPageView = null;
-        this._syncPageController();
+        this._poolCategories = null;
+
+        // Fetched up front rather than when the pool form opens: the <select>
+        // is rendered with the template, so there is no window in which it can
+        // be submitted while still empty. In practice this is served from the
+        // api cache, since the pool category colour map is already loaded at
+        // startup.
+        this._whenReady = api.hasPrivilege("pools:create")
+            ? PoolCategoryList.get().then(
+                  (response) => {
+                      this._poolCategories = response.results;
+                  },
+                  (error) => {
+                      this._poolCategories = null;
+                      this._poolCategoryError = error.message;
+                  }
+              )
+            : Promise.resolve();
+
+        this._whenReady.then(() => this._syncPageController());
+    }
+
+    get _editMode() {
+        return !!settings.get().editMode;
+    }
+
+    get _canSelect() {
+        return (
+            api.hasPrivilege("posts:bulk-edit:tags") ||
+            api.hasPrivilege("posts:bulk-edit:safety") ||
+            api.hasPrivilege("posts:bulk-edit:delete") ||
+            api.hasPrivilege("pools:create")
+        );
+    }
+
+    _evtChangeEditMode(e) {
+        // The header persists the setting itself; turning it off re-navigates
+        // (closing the bulk editors), which re-renders the page anyway.
+        if (this._postsPageView && e.detail.editMode) {
+            this._postsPageView.setEditMode(true);
+        } else if (this._postsPageView) {
+            this._postsPageView.setEditMode(false);
+        }
     }
 
     showSuccess(message) {
@@ -287,6 +335,14 @@ class PostListController {
                     "posts:bulk-edit:delete"
                 );
                 const canCreatePool = api.hasPrivilege("pools:create");
+                const poolCategories = {};
+                let defaultPoolCategory = "";
+                for (let category of this._poolCategories || []) {
+                    poolCategories[category.name] = category.name;
+                    if (category.isDefault || !defaultPoolCategory) {
+                        defaultPoolCategory = category.name;
+                    }
+                }
                 Object.assign(pageCtx, {
                     canViewPosts: api.hasPrivilege("posts:view"),
                     enableSafety: api.safetyEnabled(),
@@ -294,11 +350,10 @@ class PostListController {
                     canBulkEditSafety: canBulkEditSafety,
                     canBulkDelete: canBulkDelete,
                     canCreatePool: canCreatePool,
-                    canSelect:
-                        canBulkEditTags ||
-                        canBulkEditSafety ||
-                        canBulkDelete ||
-                        canCreatePool,
+                    poolCategories: poolCategories,
+                    defaultPoolCategory: defaultPoolCategory,
+                    editMode: this._editMode,
+                    canSelect: this._canSelect,
                     bulkEdit: {
                         tags: this._bulkEditTags,
                         markedForDeletion: this._postsMarkedForDeletion,
@@ -307,6 +362,13 @@ class PostListController {
                 });
                 const view = new PostsPageView(pageCtx);
                 this._postsPageView = view;
+                if (canCreatePool && this._poolCategoryError) {
+                    this._pageController.view.showError(
+                        "Could not load pool categories: " +
+                            this._poolCategoryError
+                    );
+                    this._poolCategoryError = null;
+                }
                 view.addEventListener("tag", (e) => this._evtTag(e));
                 view.addEventListener("untag", (e) => this._evtUntag(e));
                 view.addEventListener("changeSafety", (e) =>

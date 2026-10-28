@@ -1,4 +1,9 @@
-<div class='post-list-header'><%
+<div class='post-list-header<%- ctx.editMode ? ' edit-mode' : '' %>'><%
+    %><% if (ctx.canUseEditMode) { %><%
+        %><a href class='mousetrap button append edit-mode-toggle<%- ctx.editMode ? ' active' : '' %>' title='Show the mass editing tools and allow drag-selecting posts'><%
+            %><i class='fa fa-pencil'></i> Edit mode<%
+        %></a><%
+    %><% } %><%
     %><form class='horizontal search'><%
         %><%= ctx.makeTextInput({text: 'Search query', id: 'search-text', name: 'search-text', value: ctx.parameters.query}) %><%
         %><wbr/><%

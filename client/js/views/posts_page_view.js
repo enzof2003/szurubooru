@@ -3,7 +3,6 @@
 const events = require("../events.js");
 const keyboard = require("../util/keyboard.js");
 const views = require("../util/views.js");
-const PoolCategoryList = require("../models/pool_category_list.js");
 const PostSelectionControl = require("../controls/post_selection_control.js");
 
 const template = views.getTemplate("posts-page");
@@ -53,6 +52,7 @@ class PostsPageView extends events.EventTarget {
 
         this._syncBulkEditorsHighlights();
 
+        this._poolOrder = [];
         this._selectionControl = null;
         if (ctx.canSelect && this._postListNode) {
             this._initSelection();
@@ -90,7 +90,15 @@ class PostsPageView extends events.EventTarget {
     // ---- selection -------------------------------------------------------
 
     _initSelection() {
-        this._selectionControl = new PostSelectionControl(this._postListNode);
+        this._selectionControl = new PostSelectionControl({
+            // the whole content area, so a drag can start in the margin beside
+            // the grid rather than only in the gaps between thumbnails
+            surfaceNode:
+                document.getElementById("content-holder") ||
+                this._postListNode,
+            itemsNode: this._postListNode,
+            enabled: this._ctx.editMode,
+        });
         this._selectionControl.addEventListener("change", (e) =>
             this._syncSelectionBar()
         );
@@ -140,6 +148,20 @@ class PostsPageView extends events.EventTarget {
         bind(".clear-selection", () => this._selectionControl.clear());
         bind(".open-create-pool", () => this._showCreatePoolForm());
         bind(".cancel-create-pool", () => this._hideCreatePoolForm());
+        bind(".swap-pool-order", () => this._swapPoolOrder());
+
+        const customOrderNode = this._customOrderToggleNode;
+        if (customOrderNode) {
+            customOrderNode.addEventListener("change", () =>
+                this._syncCustomOrderField()
+            );
+        }
+        const orderInputNode = this._poolOrderInputNode;
+        if (orderInputNode) {
+            orderInputNode.addEventListener("input", () =>
+                this._evtPoolOrderInput()
+            );
+        }
 
         const formNode = this._createPoolFormNode;
         if (formNode) {
@@ -215,6 +237,32 @@ class PostsPageView extends events.EventTarget {
         barNode.hidden = count === 0;
         if (!count) {
             this._hideCreatePoolForm();
+        } else if (this._poolCreationOpen) {
+            this._resetPoolOrder();
+        }
+    }
+
+    get _customOrderToggleNode() {
+        return this._hostNode.querySelector("input[name=custom-order]");
+    }
+
+    get _poolOrderInputNode() {
+        return this._hostNode.querySelector("input[name=pool-order]");
+    }
+
+    get _poolCreationOpen() {
+        const formNode = this._createPoolFormNode;
+        return !!formNode && !formNode.hidden;
+    }
+
+    setEditMode(state) {
+        this._ctx.editMode = state;
+        if (this._selectionControl) {
+            this._selectionControl.setEnabled(state);
+        }
+        if (!state) {
+            this._hideCreatePoolForm();
+            this._syncSelectionBar();
         }
     }
 
@@ -224,23 +272,11 @@ class PostsPageView extends events.EventTarget {
             return;
         }
         formNode.hidden = false;
-        this._loadPoolCategories().then(
-            () => {
-                const nameNode = formNode.querySelector(
-                    "input[name=pool-name]"
-                );
-                if (nameNode) {
-                    nameNode.focus();
-                }
-            },
-            (error) => {
-                this.dispatchEvent(
-                    new CustomEvent("error", {
-                        detail: { message: error.message },
-                    })
-                );
-            }
-        );
+        this._resetPoolOrder();
+        const nameNode = formNode.querySelector("input[name=pool-name]");
+        if (nameNode) {
+            nameNode.focus();
+        }
     }
 
     _hideCreatePoolForm() {
@@ -253,39 +289,122 @@ class PostsPageView extends events.EventTarget {
         if (nameNode) {
             nameNode.value = "";
         }
+        const customOrderNode = this._customOrderToggleNode;
+        if (customOrderNode) {
+            customOrderNode.checked = false;
+        }
+        this._poolOrder = [];
+        this._syncCustomOrderField();
+        this._syncPoolIndexBadges();
     }
 
-    // Categories are only needed once the user actually reaches for the pool
-    // form, so they are not fetched on every post list render.
-    _loadPoolCategories() {
-        if (this._poolCategoriesPromise) {
-            return this._poolCategoriesPromise;
-        }
-        this._poolCategoriesPromise = PoolCategoryList.get().then(
-            (response) => {
-                const formNode = this._createPoolFormNode;
-                const selectNode = formNode
-                    ? formNode.querySelector("select[name=pool-category]")
-                    : null;
-                if (selectNode) {
-                    views.emptyContent(selectNode);
-                    for (let category of response.results) {
-                        const optionNode = document.createElement("option");
-                        optionNode.value = category.name;
-                        optionNode.textContent = category.name;
-                        optionNode.selected = category.isDefault;
-                        selectNode.appendChild(optionNode);
-                    }
-                }
-                return response;
-            },
-            (error) => {
-                // let the next attempt retry instead of caching the failure
-                this._poolCategoriesPromise = null;
-                return Promise.reject(error);
+    // ---- pool ordering --------------------------------------------------
+
+    // Keeps the order the user has arranged so far, dropping posts that left
+    // the selection and appending newly selected ones in page order.
+    _resetPoolOrder() {
+        const selected = this._selectionControl
+            ? this._selectionControl.selectedIds
+            : [];
+        const selectedSet = new Set(selected);
+        const kept = this._poolOrder.filter((id) => selectedSet.has(id));
+        const keptSet = new Set(kept);
+        for (let id of selected) {
+            if (!keptSet.has(id)) {
+                kept.push(id);
             }
+        }
+        this._poolOrder = kept;
+        this._syncPoolOrderField();
+        this._syncPoolIndexBadges();
+    }
+
+    _swapPoolOrder() {
+        this._poolOrder = [...this._poolOrder].reverse();
+        this._syncPoolOrderField();
+        this._syncPoolIndexBadges();
+    }
+
+    _syncCustomOrderField() {
+        const toggleNode = this._customOrderToggleNode;
+        const inputNode = this._poolOrderInputNode;
+        if (!inputNode) {
+            return;
+        }
+        const on = !!(toggleNode && toggleNode.checked);
+        inputNode.hidden = !on;
+        if (on) {
+            this._syncPoolOrderField();
+        } else {
+            inputNode.setCustomValidity("");
+            inputNode.classList.remove("invalid");
+        }
+    }
+
+    _syncPoolOrderField() {
+        const inputNode = this._poolOrderInputNode;
+        if (inputNode && !inputNode.hidden) {
+            inputNode.value = this._poolOrder.join(" ");
+            inputNode.setCustomValidity("");
+            inputNode.classList.remove("invalid");
+        }
+    }
+
+    // The field is authoritative while it is valid; an incomplete list is left
+    // alone so that typing is not fought, but it is flagged.
+    _evtPoolOrderInput() {
+        const inputNode = this._poolOrderInputNode;
+        if (!inputNode) {
+            return;
+        }
+        const ids = inputNode.value.split(/[\s,]+/).filter((id) => id);
+        const selected = new Set(
+            this._selectionControl ? this._selectionControl.selectedIds : []
         );
-        return this._poolCategoriesPromise;
+
+        const unknown = ids.filter((id) => !selected.has(id));
+        const duplicated = ids.length !== new Set(ids).size;
+        let problem = "";
+        if (duplicated) {
+            problem = "The same post is listed more than once.";
+        } else if (unknown.length) {
+            problem = `Not in the selection: ${unknown.join(" ")}`;
+        } else if (ids.length !== selected.size) {
+            problem = `Expected ${selected.size} post ID(s), got ${ids.length}.`;
+        }
+
+        inputNode.setCustomValidity(problem);
+        inputNode.classList.toggle("invalid", !!problem);
+        if (!problem) {
+            this._poolOrder = ids;
+            this._syncPoolIndexBadges();
+        }
+    }
+
+    _syncPoolIndexBadges() {
+        const show = this._poolCreationOpen;
+        const indexById = {};
+        this._poolOrder.forEach((id, index) => {
+            indexById[id] = index + 1;
+        });
+
+        for (let listItemNode of this._listItemNodes) {
+            const postId = listItemNode.getAttribute("data-post-id");
+            let badgeNode = listItemNode.querySelector(".pool-index");
+            const index = show ? indexById[postId] : undefined;
+            if (index === undefined) {
+                if (badgeNode) {
+                    badgeNode.remove();
+                }
+                continue;
+            }
+            if (!badgeNode) {
+                badgeNode = document.createElement("span");
+                badgeNode.className = "pool-index";
+                listItemNode.appendChild(badgeNode);
+            }
+            badgeNode.textContent = index;
+        }
     }
 
     _evtCreatePoolSubmit(e) {
@@ -302,7 +421,43 @@ class PostsPageView extends events.EventTarget {
             }
             return;
         }
-        const posts = this.selectedPosts;
+
+        const orderInputNode = this._poolOrderInputNode;
+        if (
+            orderInputNode &&
+            !orderInputNode.hidden &&
+            orderInputNode.classList.contains("invalid")
+        ) {
+            this.dispatchEvent(
+                new CustomEvent("error", {
+                    detail: {
+                        message:
+                            "The custom order is not a valid arrangement of " +
+                            "the selected posts.",
+                    },
+                })
+            );
+            return;
+        }
+
+        const category = categoryNode ? categoryNode.value : "";
+        if (!category) {
+            // never silently post an empty category - the server rejects it
+            // with a confusing "Pool category '' not found"
+            this.dispatchEvent(
+                new CustomEvent("error", {
+                    detail: {
+                        message:
+                            "No pool category is available, so the pool " +
+                            "cannot be created. Check that pool categories " +
+                            "exist and that you may list them.",
+                    },
+                })
+            );
+            return;
+        }
+
+        const posts = this._postsInPoolOrder();
         if (!posts.length) {
             return;
         }
@@ -311,10 +466,16 @@ class PostsPageView extends events.EventTarget {
                 detail: {
                     posts: posts,
                     names: [name],
-                    category: categoryNode ? categoryNode.value : "default",
+                    category: category,
                 },
             })
         );
+    }
+
+    _postsInPoolOrder() {
+        return this._poolOrder
+            .map((postId) => this._postIdToPost[postId])
+            .filter((post) => post);
     }
 
     // ---- per-post bulk editors -------------------------------------------

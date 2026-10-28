@@ -1,6 +1,7 @@
 "use strict";
 
 const events = require("../events.js");
+const views = require("../util/views.js");
 
 // A mousedown only becomes a marquee drag once the cursor has travelled this
 // far, so that ordinary clicks still open the post they landed on.
@@ -10,10 +11,21 @@ const DRAG_THRESHOLD = 6;
 const EDGE_SCROLL_MARGIN = 60;
 const EDGE_SCROLL_SPEED = 22;
 
-// Nodes that keep their own click handling; a mousedown on them must never
-// start a selection drag.
-const PASSTHROUGH_SELECTOR =
-    ".edit-overlay, .post-selection-bar, input, button, select, textarea, label";
+// Things that keep their own click handling: a mousedown on them must never
+// start a selection drag, and a click on them must not clear the selection.
+const PASSTHROUGH_SELECTOR = [
+    ".edit-overlay",
+    ".post-selection-bar",
+    ".post-list-header",
+    ".page-nav",
+    ".messages",
+    "input",
+    "button",
+    "select",
+    "textarea",
+    "label",
+    "a.button",
+].join(", ");
 
 function _isPassthrough(node) {
     return !!(node && node.closest && node.closest(PASSTHROUGH_SELECTOR));
@@ -26,13 +38,16 @@ function _isAdditive(e) {
 // Lets the user pick a set of posts out of a post list: drag a marquee over the
 // thumbnails, ctrl/cmd-click to toggle one, shift-click to extend a range.
 //
-// The control only owns the selection itself - it marks the list items with a
-// `selected` class and announces changes - so that the view above it can decide
-// what the selection is good for.
+// The drag surface is deliberately wider than the thumbnails themselves (it is
+// the whole content area, margins included) so that a drag can be started from
+// the empty space beside the grid as well as from a thumbnail.
 class PostSelectionControl extends events.EventTarget {
-    constructor(hostNode) {
+    constructor(options) {
         super();
-        this._hostNode = hostNode;
+        this._surfaceNode = options.surfaceNode;
+        this._itemsNode = options.itemsNode;
+        this._enabled = !!options.enabled;
+
         this._selectedIds = new Set();
         this._anchorId = null;
 
@@ -45,13 +60,50 @@ class PostSelectionControl extends events.EventTarget {
 
         this._boundMouseMove = (e) => this._evtMouseMove(e);
         this._boundMouseUp = (e) => this._evtMouseUp(e);
+        this._boundMouseDown = (e) => this._evtMouseDown(e);
+        this._boundClick = (e) => this._evtClick(e);
+        this._boundDragStart = (e) => this._evtDragStart(e);
 
-        this._hostNode.addEventListener("mousedown", (e) =>
-            this._evtMouseDown(e)
-        );
+        this._surfaceNode.addEventListener("mousedown", this._boundMouseDown);
         // Capture, so that a modifier-click is claimed before the router's
         // document-level handler can treat it as plain navigation.
-        this._hostNode.addEventListener("click", (e) => this._evtClick(e), true);
+        this._surfaceNode.addEventListener("click", this._boundClick, true);
+        // Thumbnails are links wrapping an <img>, so without this the browser
+        // starts its own link/image drag and we never see mousemove at all -
+        // which is why a drag could not be started on a post.
+        this._surfaceNode.addEventListener("dragstart", this._boundDragStart);
+
+        // The page view that owns this control is thrown away and rebuilt on
+        // every page render, while the surface node outlives it, so the
+        // listeners have to come off with the list they belong to.
+        views.monitorNodeRemoval(this._itemsNode, () => this.destroy());
+    }
+
+    destroy() {
+        this._endDrag();
+        this._surfaceNode.removeEventListener(
+            "mousedown",
+            this._boundMouseDown
+        );
+        this._surfaceNode.removeEventListener("click", this._boundClick, true);
+        this._surfaceNode.removeEventListener(
+            "dragstart",
+            this._boundDragStart
+        );
+        window.removeEventListener("mousemove", this._boundMouseMove);
+        window.removeEventListener("mouseup", this._boundMouseUp);
+    }
+
+    get enabled() {
+        return this._enabled;
+    }
+
+    setEnabled(state) {
+        this._enabled = !!state;
+        if (!this._enabled) {
+            this._endDrag();
+            this.clear();
+        }
     }
 
     get selectedIds() {
@@ -66,7 +118,7 @@ class PostSelectionControl extends events.EventTarget {
     }
 
     get _items() {
-        return [...this._hostNode.querySelectorAll("li[data-post-id]")].map(
+        return [...this._itemsNode.querySelectorAll("li[data-post-id]")].map(
             (node) => ({ id: node.getAttribute("data-post-id"), node: node })
         );
     }
@@ -76,25 +128,14 @@ class PostSelectionControl extends events.EventTarget {
     }
 
     clear() {
+        if (!this._selectedIds.size) {
+            return;
+        }
         this._applySelection(new Set());
     }
 
     selectAll() {
         this._applySelection(new Set(this._items.map((item) => item.id)));
-    }
-
-    // Drops ids that are no longer on the page (e.g. after posts were deleted)
-    // without losing the rest of the selection.
-    prune() {
-        const live = new Set(this._items.map((item) => item.id));
-        const kept = new Set(
-            [...this._selectedIds].filter((id) => live.has(id))
-        );
-        if (kept.size !== this._selectedIds.size) {
-            this._applySelection(kept);
-        } else {
-            this._syncHighlights();
-        }
     }
 
     _applySelection(ids) {
@@ -116,8 +157,14 @@ class PostSelectionControl extends events.EventTarget {
         }
     }
 
+    _evtDragStart(e) {
+        if (this._enabled && !_isPassthrough(e.target)) {
+            e.preventDefault();
+        }
+    }
+
     _evtMouseDown(e) {
-        if (e.button !== 0 || _isPassthrough(e.target)) {
+        if (!this._enabled || e.button !== 0 || _isPassthrough(e.target)) {
             return;
         }
         this._pending = true;
@@ -161,10 +208,10 @@ class PostSelectionControl extends events.EventTarget {
         this._dragging = true;
         this._pending = false;
 
-        const hostRect = this._hostNode.getBoundingClientRect();
-        this._hostOrigin = {
-            x: hostRect.left + window.scrollX,
-            y: hostRect.top + window.scrollY,
+        const listRect = this._itemsNode.getBoundingClientRect();
+        this._marqueeOrigin = {
+            x: listRect.left + window.scrollX,
+            y: listRect.top + window.scrollY,
         };
         // Page coordinates stay valid while the page scrolls under the drag, so
         // they are measured once instead of on every mouse move.
@@ -184,8 +231,8 @@ class PostSelectionControl extends events.EventTarget {
 
         this._marqueeNode = document.createElement("div");
         this._marqueeNode.className = "selection-marquee";
-        this._hostNode.appendChild(this._marqueeNode);
-        this._hostNode.classList.add("selecting");
+        this._itemsNode.appendChild(this._marqueeNode);
+        this._itemsNode.classList.add("selecting");
 
         this._scrollFrame = window.requestAnimationFrame(() =>
             this._edgeScroll()
@@ -204,8 +251,8 @@ class PostSelectionControl extends events.EventTarget {
             bottom: Math.max(this._origin.pageY, current.y),
         };
 
-        this._marqueeNode.style.left = `${box.left - this._hostOrigin.x}px`;
-        this._marqueeNode.style.top = `${box.top - this._hostOrigin.y}px`;
+        this._marqueeNode.style.left = `${box.left - this._marqueeOrigin.x}px`;
+        this._marqueeNode.style.top = `${box.top - this._marqueeOrigin.y}px`;
         this._marqueeNode.style.width = `${box.right - box.left}px`;
         this._marqueeNode.style.height = `${box.bottom - box.top}px`;
 
@@ -230,10 +277,7 @@ class PostSelectionControl extends events.EventTarget {
         let delta = 0;
         if (this._pointer.y < EDGE_SCROLL_MARGIN) {
             delta = -EDGE_SCROLL_SPEED;
-        } else if (
-            this._pointer.y >
-            window.innerHeight - EDGE_SCROLL_MARGIN
-        ) {
+        } else if (this._pointer.y > window.innerHeight - EDGE_SCROLL_MARGIN) {
             delta = EDGE_SCROLL_SPEED;
         }
         if (delta) {
@@ -245,11 +289,8 @@ class PostSelectionControl extends events.EventTarget {
         );
     }
 
-    _evtMouseUp(e) {
-        window.removeEventListener("mousemove", this._boundMouseMove);
-        window.removeEventListener("mouseup", this._boundMouseUp);
+    _endDrag() {
         this._pending = false;
-
         if (!this._dragging) {
             return;
         }
@@ -262,9 +303,18 @@ class PostSelectionControl extends events.EventTarget {
             this._marqueeNode.remove();
             this._marqueeNode = null;
         }
-        this._hostNode.classList.remove("selecting");
-        // the mouseup is followed by a click on whatever the drag ended over
-        this._suppressClick = true;
+        this._itemsNode.classList.remove("selecting");
+    }
+
+    _evtMouseUp(e) {
+        window.removeEventListener("mousemove", this._boundMouseMove);
+        window.removeEventListener("mouseup", this._boundMouseUp);
+        const wasDragging = this._dragging;
+        this._endDrag();
+        if (wasDragging) {
+            // the mouseup is followed by a click on whatever the drag ended over
+            this._suppressClick = true;
+        }
     }
 
     _evtClick(e) {
@@ -274,7 +324,7 @@ class PostSelectionControl extends events.EventTarget {
             e.stopPropagation();
             return;
         }
-        if (_isPassthrough(e.target)) {
+        if (!this._enabled || _isPassthrough(e.target)) {
             return;
         }
 
@@ -322,11 +372,7 @@ class PostSelectionControl extends events.EventTarget {
             return;
         }
         const selection = new Set(this._selectedIds);
-        for (
-            let i = Math.min(from, to);
-            i <= Math.max(from, to);
-            i++
-        ) {
+        for (let i = Math.min(from, to); i <= Math.max(from, to); i++) {
             selection.add(ids[i]);
         }
         this._applySelection(selection);

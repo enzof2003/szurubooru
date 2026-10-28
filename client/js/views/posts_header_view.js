@@ -193,6 +193,12 @@ class PostsHeaderView extends events.EventTarget {
         keyboard.bind("p", () => this._focusFirstPostNode());
         search.searchInputNodeFocusHelper(this._queryInputNode);
 
+        if (this._editModeToggleNode) {
+            this._editModeToggleNode.addEventListener("click", (e) =>
+                this._evtEditModeToggleClick(e)
+            );
+        }
+
         for (let safetyButtonNode of this._safetyButtonNodes) {
             safetyButtonNode.addEventListener("click", (e) =>
                 this._evtSafetyButtonClick(e)
@@ -247,6 +253,43 @@ class PostsHeaderView extends events.EventTarget {
 
     get _formNode() {
         return this._hostNode.querySelector("form.search");
+    }
+
+    get _editModeToggleNode() {
+        return this._hostNode.querySelector(".edit-mode-toggle");
+    }
+
+    get editMode() {
+        return this._hostNode
+            .querySelector(".post-list-header")
+            .classList.contains("edit-mode");
+    }
+
+    // Edit mode only reveals the mass editing tools and arms drag-select; it is
+    // not part of the search, so it is applied without reloading the page.
+    _evtEditModeToggleClick(e) {
+        e.preventDefault();
+        const headerNode = this._hostNode.querySelector(".post-list-header");
+        const enabled = !headerNode.classList.contains("edit-mode");
+        headerNode.classList.toggle("edit-mode", enabled);
+        this._editModeToggleNode.classList.toggle("active", enabled);
+
+        let browsingSettings = settings.get();
+        browsingSettings.editMode = enabled;
+        settings.save(browsingSettings, true);
+
+        this.dispatchEvent(
+            new CustomEvent("changeEditMode", {
+                detail: { editMode: enabled },
+            })
+        );
+
+        // leaving edit mode also closes whatever bulk editor was open, so the
+        // per-post flippers stop covering the thumbnails
+        if (!enabled) {
+            this._closeAndShowAllBulkEditors();
+            this._navigate();
+        }
     }
 
     get _safetyButtonNodes() {

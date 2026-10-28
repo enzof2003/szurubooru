@@ -303,6 +303,25 @@
             pointer-events: none
             background: alpha($main-color, 0.25)
 
+    ul li .pool-index
+        position: absolute
+        z-index: 11
+        top: 50%
+        left: 50%
+        transform: translate(-50%, -50%)
+        pointer-events: none
+        min-width: 1.6em
+        padding: 0.15em 0.3em
+        box-sizing: border-box
+        border-radius: 0.2em
+        background: alpha($main-color, 0.9)
+        color: white
+        font-size: 1.8em
+        font-weight: bold
+        line-height: 1.2
+        text-align: center
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6)
+
 .post-flow
     ul li.selected
         .thumbnail
@@ -314,7 +333,7 @@
     left: 0
     right: 0
     bottom: 0
-    padding: 0.6em 1em
+    padding: 0.5em 1em
     box-sizing: border-box
     background: $window-color
     border-top: 1px solid $line-color
@@ -322,22 +341,39 @@
     white-space: normal
     text-align: left
 
+    .bar-row
+        display: flex
+        flex-wrap: wrap
+        align-items: center
+        gap: 0.4em
+        &:not(:first-child)
+            margin-top: 0.4em
+
     .summary
-        display: inline-block
-        margin-right: 1em
         font-weight: bold
+        white-space: nowrap
         .count
             color: $main-color
 
     .actions
+        display: flex
+        flex-wrap: wrap
+        align-items: center
+        gap: 0.4em
         a.button
-            margin-right: 0.4em
-            margin-bottom: 0.25em
+            margin: 0
+
+    // pushes the tip to the right edge of the bar
+    .hint
+        margin-left: auto
+        padding-left: 1em
+        font-size: 0.85em
+        color: $inactive-link-color
+        white-space: nowrap
 
     .safety-selected
-        display: inline-block
-        margin-right: 0.6em
-        vertical-align: middle
+        display: inline-flex
+        align-items: center
         a
             display: inline-block
             width: 1.2em
@@ -345,7 +381,6 @@
             margin: 0 0.1em
             box-sizing: border-box
             border: 3px solid
-            vertical-align: middle
             &.safety-safe
                 background-color: $safety-safe
                 border-color: @background-color
@@ -357,26 +392,60 @@
                 border-color: @background-color
 
     .create-pool-from-selection
-        margin-top: 0.5em
-        input[name=pool-name]
-            width: 18em
-            margin-right: 0.4em
-        select
-            margin-right: 0.4em
-        @media (max-width: 1000px)
-            input[name=pool-name]
-                display: block
-                width: 100%
-                margin-bottom: 0.4em
+        width: 100%
+        margin: 0
 
-    .hint
-        display: block
-        margin-top: 0.4em
-        font-size: 0.85em
-        color: $inactive-link-color
+        input[name=pool-name]
+            width: 16em
+            margin: 0
+        select[name=pool-category]
+            margin: 0
+        input[name=pool-order]
+            flex: 1 1 18em
+            min-width: 12em
+            margin: 0
+            font-family: monospace
+            &.invalid
+                border-color: $input-bad-border-color
+                background: $input-bad-background-color
+        label.custom-order
+            margin: 0 0.2em
+            font-size: 0.95em
+            white-space: nowrap
+        .pool-buttons
+            display: flex
+            flex-wrap: wrap
+            align-items: center
+            gap: 0.4em
+            input.confirm,
+            a.button
+                margin: 0
+
+    @media (max-width: 1000px)
+        .hint
+            display: none
+        .create-pool-from-selection
+            input[name=pool-name]
+                flex: 1 1 100%
+                width: auto
 
 .darktheme .post-selection-bar
     background: $window-color-darktheme
     border-top-color: rgba(255, 255, 255, 0.15)
     .hint
         color: $inactive-link-color-darktheme
+
+// ---- edit mode ----------------------------------------------------------
+
+// The mass editing forms are only offered while edit mode is on, so ordinary
+// browsing is not cluttered by tools that need a selection.
+.post-list-header
+    .edit-mode-toggle
+        float: right
+        margin-left: 1em
+        &.active
+            background: $main-color
+            color: $button-enabled-text-color
+    &:not(.edit-mode)
+        .bulk-edit
+            display: none
