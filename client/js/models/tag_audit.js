@@ -7,11 +7,22 @@ const Post = require("./post.js");
 const TagList = require("./tag_list.js");
 
 const PAGE_SIZE = 100;
+const FILE_RULES_STORAGE_KEY = "tagDiagnosisFileRules";
 
 // How many posts a single "fix" pass will touch. A mistyped rule can match the
 // whole booru, so the apply step is deliberately bounded and repeatable rather
 // than unbounded.
 const APPLY_CAP = 1000;
+
+// Rules derived from what szurubooru already detected about the file itself:
+// the post type it assigned, and the sound/loop flags it set while processing
+// the upload. Tag names match the ones this booru already uses.
+const DEFAULT_FILE_RULES = [
+    { condition: "type:video", tags: ["video"] },
+    { condition: "type:animation", tags: ["gif"] },
+    { condition: "type:animation,video", tags: ["animated"] },
+    { condition: "flag:sound", tags: ["sound_warning"] },
+];
 
 // Escapes the characters szurubooru's search parser treats specially, so that a
 // tag like `2b_(nier:automata)` or `th07.5` is matched literally instead of
@@ -74,6 +85,69 @@ function fetchPosts(query, maxCount) {
     return step(0);
 }
 
+function loadFileRules() {
+    try {
+        const stored = JSON.parse(
+            localStorage.getItem(FILE_RULES_STORAGE_KEY)
+        );
+        if (Array.isArray(stored)) {
+            return stored.filter(
+                (rule) =>
+                    rule &&
+                    rule.condition &&
+                    Array.isArray(rule.tags) &&
+                    rule.tags.length
+            );
+        }
+    } catch (e) {
+        // fall through to the defaults
+    }
+    return DEFAULT_FILE_RULES.map((rule) => ({
+        condition: rule.condition,
+        tags: [...rule.tags],
+    }));
+}
+
+function saveFileRules(rules) {
+    localStorage.setItem(FILE_RULES_STORAGE_KEY, JSON.stringify(rules));
+}
+
+function resetFileRules() {
+    localStorage.removeItem(FILE_RULES_STORAGE_KEY);
+    return loadFileRules();
+}
+
+// Rules are edited as text, one per line: `<search> -> <tag> [<tag>...]`.
+function parseFileRules(text) {
+    const rules = [];
+    const errors = [];
+    const lines = text.split("\n");
+    for (let [index, line] of lines.entries()) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) {
+            continue;
+        }
+        const parts = trimmed.split(/\s*(?:->|=>)\s*/);
+        if (parts.length !== 2 || !parts[0] || !parts[1]) {
+            errors.push(`Line ${index + 1}: expected "<search> -> <tags>"`);
+            continue;
+        }
+        const tags = parts[1].split(/\s+/).filter((tag) => tag);
+        if (!tags.length) {
+            errors.push(`Line ${index + 1}: no tags given`);
+            continue;
+        }
+        rules.push({ condition: parts[0], tags: tags });
+    }
+    return { rules: rules, errors: errors };
+}
+
+function formatFileRules(rules) {
+    return rules
+        .map((rule) => `${rule.condition} -> ${rule.tags.join(" ")}`)
+        .join("\n");
+}
+
 function makeCheck(group, label, condition, tags) {
     const query = buildQuery(condition, tags);
     return {
@@ -89,6 +163,17 @@ function makeCheck(group, label, condition, tags) {
         scanning: false,
         error: null,
     };
+}
+
+function fileRuleChecks(rules) {
+    return rules.map((rule) =>
+        makeCheck(
+            "file",
+            `${rule.condition} → ${rule.tags.join(" ")}`,
+            rule.condition,
+            rule.tags
+        )
+    );
 }
 
 // Turns the booru's own tag implications into checks. An implication only fires
@@ -193,11 +278,18 @@ function applyCheck(check, options) {
 }
 
 module.exports = {
+    DEFAULT_FILE_RULES: DEFAULT_FILE_RULES,
     APPLY_CAP: APPLY_CAP,
     escapeTerm: escapeTerm,
     buildQuery: buildQuery,
     countPosts: countPosts,
     implicationChecks: implicationChecks,
+    fileRuleChecks: fileRuleChecks,
+    loadFileRules: loadFileRules,
+    saveFileRules: saveFileRules,
+    resetFileRules: resetFileRules,
+    parseFileRules: parseFileRules,
+    formatFileRules: formatFileRules,
     scan: scan,
     applyCheck: applyCheck,
 };

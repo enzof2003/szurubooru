@@ -20,11 +20,13 @@ class TagDiagnosisController {
         topNavigation.activate("tags");
         topNavigation.setTitle("Tag diagnosis");
 
-        this._cancelled = { implications: false };
+        this._fileRules = tagAudit.loadFileRules();
+        this._cancelled = { implications: false, fileRules: false };
 
         this._view = new TagDiagnosisView({
             canEditPostTags: api.hasPrivilege("posts:edit:tags"),
             canEditTags: api.hasPrivilege("tags:edit"),
+            fileRulesText: tagAudit.formatFileRules(this._fileRules),
         });
 
         this._sections = {
@@ -33,6 +35,15 @@ class TagDiagnosisController {
                 key: "implications",
                 build: () => tagAudit.implicationChecks(),
                 label: "implication",
+            },
+            fileRules: {
+                view: this._view.fileRules,
+                key: "fileRules",
+                build: () =>
+                    Promise.resolve(
+                        tagAudit.fileRuleChecks(this._fileRules)
+                    ),
+                label: "file rule",
             },
         };
 
@@ -49,6 +60,37 @@ class TagDiagnosisController {
                 this._fix(section, section.view.problemChecks)
             );
         }
+
+        this._view.addEventListener("saveRules", (e) =>
+            this._evtSaveRules(e)
+        );
+        this._view.addEventListener("resetRules", () =>
+            this._evtResetRules()
+        );
+    }
+
+    _evtSaveRules(e) {
+        this._view.clearMessages();
+        const parsed = tagAudit.parseFileRules(e.detail.text);
+        if (parsed.errors.length) {
+            this._view.showError(parsed.errors.join("\n"));
+            return;
+        }
+        this._fileRules = parsed.rules;
+        tagAudit.saveFileRules(this._fileRules);
+        this._view.setRulesText(tagAudit.formatFileRules(this._fileRules));
+        this._sections.fileRules.view.setChecks([]);
+        this._view.showSuccess(
+            `Saved ${this._fileRules.length} rule(s). Scan again to apply them.`
+        );
+    }
+
+    _evtResetRules() {
+        this._view.clearMessages();
+        this._fileRules = tagAudit.resetFileRules();
+        this._view.setRulesText(tagAudit.formatFileRules(this._fileRules));
+        this._sections.fileRules.view.setChecks([]);
+        this._view.showInfo("Rules reset to the defaults.");
     }
 
     _scan(section) {

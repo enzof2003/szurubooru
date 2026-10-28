@@ -278,6 +278,45 @@ class TagDiagnosisView extends events.EventTarget {
             this._hostNode.querySelector("section.implications"),
             { canFix: ctx.canEditPostTags }
         );
+        this.fileRules = new CheckSectionView(
+            this._hostNode.querySelector("section.file-rules"),
+            { canFix: ctx.canEditPostTags }
+        );
+
+        const editorNode = this._rulesEditorNode;
+        if (editorNode) {
+            editorNode.addEventListener("submit", (e) => {
+                e.preventDefault();
+                this.dispatchEvent(
+                    new CustomEvent("saveRules", {
+                        detail: { text: this._rulesTextNode.value },
+                    })
+                );
+            });
+            for (let node of editorNode.querySelectorAll(".reset")) {
+                node.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    this.dispatchEvent(
+                        new CustomEvent("resetRules", { detail: {} })
+                    );
+                });
+            }
+        }
+    }
+
+    get _rulesEditorNode() {
+        return this._hostNode.querySelector(".rules-editor");
+    }
+
+    get _rulesTextNode() {
+        return this._hostNode.querySelector("textarea[name=rules]");
+    }
+
+    setRulesText(text) {
+        const node = this._rulesTextNode;
+        if (node) {
+            node.value = text;
+        }
     }
 
     clearMessages() {

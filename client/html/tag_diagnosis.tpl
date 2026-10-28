@@ -33,7 +33,21 @@
         <div class='results'></div>
     </section>
 
-</div>
+    <section class='file-rules'>
+        <h2>Automatic tags from file data</h2>
+        <p class='hint'>
+            Checks tags against what szurubooru detected about the file itself:
+            the post type it assigned and the sound/loop flags it set during
+            upload. One rule per line, <code>&lt;search&gt; -&gt; &lt;tags&gt;</code>.
+            Lines starting with <code>#</code> are ignored. Rules are stored in
+            this browser.
+        </p>
+        <form class='rules-editor'>
+            <%= ctx.makeTextarea({name: 'rules', value: ctx.fileRulesText, rows: 6}) %>
+            <div class='buttons'>
+                <input type='submit' class='save' value='Save rules'/>
+                <a href class='button reset'>Reset to defaults</a>
+            </div>
         </form>
         <div class='controls'>
             <a href class='button scan'>Scan file rules</a>
