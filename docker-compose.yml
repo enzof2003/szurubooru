@@ -5,6 +5,7 @@
 services:
 
   server:
+    restart: unless-stopped
     build: server
     depends_on:
       - sql
@@ -31,8 +32,10 @@ services:
         bind:
           propagation: rslave
       - "./server/config.yaml:/opt/app/config.yaml"
+    networks: [default, translate]
 
   client:
+    restart: unless-stopped
     build: client
     depends_on:
       - server
@@ -49,6 +52,7 @@ services:
           propagation: rslave
     ports:
       - "${PORT}:80"
+    networks: [default, translate]
 
   sql:
     image: postgres:11-alpine
@@ -58,3 +62,25 @@ services:
       POSTGRES_PASSWORD:
     volumes:
       - "${MOUNT_SQL}:/var/lib/postgresql/data"
+
+  ## Manga page translation (detection + OCR + LLM). Internal only: no published
+  ## port; szurubooru containers reach it at http://translate:8765 with X-API-Key.
+  ## Settings and API key: translation-system/.env
+  translate:
+    build:
+      context: ./translation-system
+      args:
+        GGML_NATIVE: "ON"   # llama.cpp tuned for this VPS's CPU: build here
+    image: szuru-translate
+    restart: unless-stopped
+    init: true              # tini as PID 1: forwards SIGTERM, reaps children
+    env_file: ./translation-system/.env
+    volumes:
+      - "./translation-system/models:/app/models:ro"
+    networks: [translate]
+    stop_grace_period: 30s
+
+networks:
+  ## Not "internal: true": the translator needs outbound HTTPS for the LLM API.
+  ## Only the translator, server and client are attached (no access to sql).
+  translate:
