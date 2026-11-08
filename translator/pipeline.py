@@ -477,11 +477,13 @@ class Translator:
         joined = "\n".join(sources)
         return {jp: en for jp, en in read_glossary(self.s.glossary_file) if jp in joined}
 
+    def _instructions(self) -> str:
+        f = self.s.instructions_file
+        return f.read_text(encoding="utf-8").strip() if f.exists() else ""
+
     def _system_prompt(self, sources: list[str]) -> str:
         s = self.s
-        instructions = (
-            s.instructions_file.read_text(encoding="utf-8").strip() if s.instructions_file.exists() else ""
-        )
+        instructions = self._instructions()
         glossary = list(self._page_glossary(sources).items())
         parts = [
             f"You are a professional manga translator. Translate Japanese manga text into natural {s.target_language}.",
@@ -494,7 +496,10 @@ class Translator:
             "{\"translations\": [{\"id\": int, \"text\": str}]} with exactly one entry per input id.",
         ]
         if instructions:
-            parts.append("Translator instructions:\n" + instructions)
+            parts.append(
+                "Translator instructions (the input JSON repeats them as \"instructions\", right before the "
+                "segments; they are binding for every segment):\n" + instructions
+            )
         if glossary:
             parts.append(
                 "Glossary: the input JSON may contain a \"glossary\" object mapping Japanese terms to their "
@@ -567,7 +572,13 @@ class Translator:
             }
             for i in ids
         ]
-        payload: dict = {"segments": segments}
+        payload: dict = {}
+        instructions = self._instructions()
+        if instructions:
+            # Repeated right before the segments, like the glossary: Gemma ignored them when they
+            # were only in the system prompt.
+            payload["instructions"] = instructions
+        payload["segments"] = segments
         glossary = self._page_glossary(sources)
         if glossary:
             # Repeated next to the segments: Gemma ignored it when it was only in the system prompt.
