@@ -1,0 +1,19 @@
+# environments / caches
+.venv/
+__pycache__/
+*.pyc
+
+# secrets (the template .env.example is tracked)
+.env
+
+# large or machine-specific artifacts
+models/
+logs/
+bench/
+translate-test/
+Test.khrproj/
+*.tmp.png
+
+# tools/: llama.cpp binaries are not tracked, only our scripts
+tools/*
+!tools/*.py

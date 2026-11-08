@@ -1,0 +1,7 @@
+# Only for re-exporting the detector (tools/export_rfdetr_onnx.py) and benchmarks.
+-r requirements.txt
+torch
+rfdetr==1.7.0
+safetensors
+onnx
+psutil

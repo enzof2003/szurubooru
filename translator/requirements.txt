@@ -1,0 +1,9 @@
+# Runtime (the service needs no PyTorch: detection = ONNX Runtime, OCR = llama-server)
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+requests
+pillow
+numpy
+onnxruntime

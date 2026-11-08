@@ -1,0 +1,15 @@
+.git/
+.venv/
+__pycache__/
+*.pyc
+.env
+models/
+logs/
+bench/
+translate-test/
+Test.khrproj/
+tools/*
+!tools/*.py
+*.md
+start_llm.ps1
+requirements-dev.txt
