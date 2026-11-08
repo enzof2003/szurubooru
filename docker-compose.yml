@@ -65,18 +65,18 @@ services:
 
   ## Manga page translation (detection + OCR + LLM). Internal only: no published
   ## port; szurubooru containers reach it at http://translate:8765 with X-API-Key.
-  ## Settings and API key: translation-system/.env
+  ## Settings and API key: translator/.env
   translate:
     build:
-      context: ./translation-system
+      context: ./translator
       args:
         GGML_NATIVE: "ON"   # llama.cpp tuned for this VPS's CPU: build here
     image: szuru-translate
     restart: unless-stopped
     init: true              # tini as PID 1: forwards SIGTERM, reaps children
-    env_file: ./translation-system/.env
+    env_file: ./translator/.env
     volumes:
-      - "./translation-system/models:/app/models:ro"
+      - "./translator/models:/app/models:ro"
     networks: [translate]
     stop_grace_period: 30s
 
