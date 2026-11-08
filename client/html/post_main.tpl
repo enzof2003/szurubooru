@@ -44,7 +44,18 @@
                 <% } %>
             </article>
             <% } %>
+            <% if (ctx.canTranslatePost) { %>
+            <article class='translate-post'>
+                <a href title='Translate'>
+                    <i class='fa fa-language'></i>
+                    <span class='vim-nav-hint'>Translate</span>
+                </a>
+            </article>
+            <% } %>
         </nav>
+        <% if (ctx.canTranslatePost) { %>
+        <div class='translate-status'><div class='messages'></div></div>
+        <% } %>
 
         <div class='sidebar-container'></div>
     </aside>

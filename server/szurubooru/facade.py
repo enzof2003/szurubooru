@@ -9,6 +9,7 @@ import sqlalchemy as sa
 import sqlalchemy.orm.exc
 
 from szurubooru import api, config, db, errors, middleware, rest
+from szurubooru.func import translation_jobs
 from szurubooru.func.file_uploads import purge_old_uploads
 from szurubooru.func.posts import (
     update_all_md5_checksums,
@@ -149,6 +150,8 @@ def create_app() -> Callable[[Any, Any], Any]:
         threading.Thread(target=migration, daemon=False).start()
 
     db.session.commit()
+
+    translation_jobs.start_worker()
 
     rest.errors.handle(errors.AuthError, _on_auth_error)
     rest.errors.handle(errors.ValidationError, _on_validation_error)

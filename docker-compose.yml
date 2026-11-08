@@ -21,6 +21,13 @@ services:
       #POSTGRES_PORT: 5432
       #LOG_SQL: 0 (1 for verbose SQL logs)
       THREADS:
+      ## Background "Translate" button (server/szurubooru/func/translation_jobs.py).
+      ## Set in the root .env (not committed); must equal API_KEY in
+      ## translator/.env. Unset = feature disabled (POST .../translate -> 400).
+      TRANSLATE_API_KEY:
+      ## 0 = OCR only (?translate=false): every note is "[MT?] <japanese>".
+      ## Unset/1 once the translator's LLM is configured.
+      TRANSLATE_LLM:
     volumes:
       ## rslave propagation ensures that if the rclone (B2) FUSE mount at
       ## /var/local/szurubooru/data/posts is remounted/restarted on the host,

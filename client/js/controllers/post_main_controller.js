@@ -67,6 +67,10 @@ class PostMainController extends BasePostController {
                     canEditPosts: api.hasPrivilege("posts:edit"),
                     canDeletePosts: api.hasPrivilege("posts:delete"),
                     canFeaturePosts: api.hasPrivilege("posts:feature"),
+                    // images and real GIFs only (not videos / flash)
+                    canTranslatePost:
+                        api.hasPrivilege("posts:edit:notes") &&
+                        ["image", "animation"].includes(post.type),
                     canListComments: api.hasPrivilege("comments:list"),
                     canCreateComments: api.hasPrivilege("comments:create"),
                     canListPools: api.hasPrivilege("pools:list"),

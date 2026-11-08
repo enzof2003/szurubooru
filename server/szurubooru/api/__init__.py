@@ -7,6 +7,7 @@ import szurubooru.api.post_api
 import szurubooru.api.snapshot_api
 import szurubooru.api.tag_api
 import szurubooru.api.tag_category_api
+import szurubooru.api.translation_api
 import szurubooru.api.upload_api
 import szurubooru.api.user_api
 import szurubooru.api.user_token_api

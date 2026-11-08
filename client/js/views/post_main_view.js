@@ -10,6 +10,7 @@ const PostContentControl = require("../controls/post_content_control.js");
 const PostNotesOverlayControl = require("../controls/post_notes_overlay_control.js");
 const PostReadonlySidebarControl = require("../controls/post_readonly_sidebar_control.js");
 const PostEditSidebarControl = require("../controls/post_edit_sidebar_control.js");
+const PostTranslateControl = require("../controls/post_translate_control.js");
 const PoolNavigatorListControl = require("../controls/pool_navigator_list_control.js");
 const CommentControl = require("../controls/comment_control.js");
 const CommentListControl = require("../controls/comment_list_control.js");
@@ -56,6 +57,7 @@ class PostMainView {
         }
 
         this._installSidebar(ctx);
+        this._installTranslateButton(ctx, sidebarNode);
         this._installCommentForm();
         this._installComments(ctx.post.comments);
         this._installPoolNavigators(ctx);
@@ -137,6 +139,19 @@ class PostMainView {
                 this._postContentControl
             );
         }
+    }
+
+    _installTranslateButton(ctx, sidebarNode) {
+        const buttonNode = sidebarNode.querySelector("article.translate-post");
+        if (!buttonNode) {
+            return;
+        }
+        this.translateControl = new PostTranslateControl(
+            buttonNode,
+            sidebarNode.querySelector(".translate-status"),
+            ctx.post,
+            ctx.editMode
+        );
     }
 
     _installPoolNavigators(ctx) {

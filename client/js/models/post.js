@@ -199,6 +199,17 @@ class Post extends events.EventTarget {
         return returnedPromise;
     }
 
+    // Re-read the post from the server (e.g. after server-side note changes),
+    // bypassing api.get()'s per-URL cache.
+    refresh() {
+        const url = uri.formatApiLink("post", this.id);
+        delete api.cache[url];
+        return api.get(url, { noProgress: true }).then((response) => {
+            this._updateFromResponse(response);
+            return Promise.resolve(this);
+        });
+    }
+
     static get(id, options) {
         return api.get(uri.formatApiLink("post", id), options).then((response) => {
             return Promise.resolve(Post.fromResponse(response));
