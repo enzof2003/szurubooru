@@ -248,9 +248,8 @@ def note_text(source: Optional[str], translation: Optional[str]) -> str:
     source = (source or "").strip()
     translation = (translation or "").strip() if translation else ""
     if translation:
-        if source:
-            return "[MT] %s\n\n%s" % (translation, source)
         return "[MT] %s" % translation
+    # No translation: show the Japanese so the note isn't empty.
     return "[MT?] %s" % source
 
 
@@ -456,6 +455,21 @@ def _fail_job(job_id: int, message: str) -> None:
     db.session.commit()
 
 
+def _store_result(job_id: int, result: Dict[str, Any]) -> None:
+    """Keep the raw blocks (polygon, source, translation, ...) on the job
+    for later use; they are not exposed by the API."""
+    job = _get_job(job_id)
+    if not job:
+        db.session.rollback()
+        return
+    job.result = {
+        "width": result.get("width"),
+        "height": result.get("height"),
+        "blocks": result["blocks"],
+    }
+    db.session.commit()
+
+
 def _merge_result(job_id: int, post_id: int, blocks: List[Any]) -> None:
     for attempt in range(MERGE_RETRIES):
         try:
@@ -524,6 +538,7 @@ def _process_job(job_id: int) -> None:
     logger.info("Translation job %d: post %d -> %s", job_id, post_id,
                 _translator_url())
     result = call_translator(image_url)
+    _store_result(job_id, result)
     _merge_result(job_id, post_id, result["blocks"])
 
 

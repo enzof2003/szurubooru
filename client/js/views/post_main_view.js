@@ -3,6 +3,7 @@
 const iosCorrectedInnerHeight = require("ios-inner-height");
 const router = require("../router.js");
 const views = require("../util/views.js");
+const settings = require("../models/settings.js");
 const uri = require("../util/uri.js");
 const keyboard = require("../util/keyboard.js");
 const Touch = require("../util/touch.js");
@@ -54,6 +55,8 @@ class PostMainView {
 
         if (ctx.post.type === "video" || ctx.post.type === "flash") {
             this._postContentControl.disableOverlay();
+        } else if (!ctx.editMode) {
+            this._installNotesToggle(postContainerNode);
         }
 
         this._installSidebar(ctx);
@@ -139,6 +142,25 @@ class PostMainView {
                 this._postContentControl
             );
         }
+    }
+
+    // View mode only (in edit mode clicks select/draw notes). "Show notes by
+    // default" sets the initial state; a left click on the picture toggles it
+    // for this page. Right-click (copy image) and fit modes are unaffected.
+    _installNotesToggle(postContainerNode) {
+        let visible = settings.get().showNotes;
+        this._postNotesOverlayControl.setNotesVisible(visible);
+        postContainerNode.addEventListener("click", (e) => {
+            if (e.button !== 0 || !e.target.closest(".post-content")) {
+                return;
+            }
+            // clicking/tapping a note box is for reading that note
+            if (e.target.closest(".notes-overlay polygon")) {
+                return;
+            }
+            visible = !visible;
+            this._postNotesOverlayControl.setNotesVisible(visible);
+        });
     }
 
     _installTranslateButton(ctx, sidebarNode) {

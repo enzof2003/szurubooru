@@ -38,6 +38,9 @@ class TranslationJob(Base):
     notes_added = sa.Column("notes_added", sa.Integer, nullable=True)
     notes_replaced = sa.Column("notes_replaced", sa.Integer, nullable=True)
     notes_skipped = sa.Column("notes_skipped", sa.Integer, nullable=True)
+    # Translator output {width, height, blocks: [{polygon, source,
+    # translation, ...}]}; stored for later use, not serialized.
+    result = sa.Column("result", sa.JSON, nullable=True)
     creation_time = sa.Column("creation_time", sa.DateTime, nullable=False)
     start_time = sa.Column("start_time", sa.DateTime, nullable=True)
     end_time = sa.Column("end_time", sa.DateTime, nullable=True)

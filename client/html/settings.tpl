@@ -67,6 +67,15 @@
 
             <li>
                 <%= ctx.makeCheckbox({
+                    text: 'Show notes by default',
+                    name: 'show-notes',
+                    checked: ctx.browsingSettings.showNotes,
+                }) %>
+                <p class='hint'>Click the picture to hide/show notes on the current post.</p>
+            </li>
+
+            <li>
+                <%= ctx.makeCheckbox({
                     text: 'Show tag suggestions',
                     name: 'tag-suggestions',
                     checked: ctx.browsingSettings.tagSuggestions,

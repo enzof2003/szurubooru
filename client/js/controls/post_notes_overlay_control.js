@@ -744,6 +744,14 @@ class PostNotesOverlayControl extends events.EventTarget {
         this._textNode.style.display = "none";
     }
 
+    // Show/hide every note (boxes and hover text) without touching the notes.
+    setNotesVisible(visible) {
+        this._svgNode.style.display = visible ? "" : "none";
+        if (!visible) {
+            this._hideNoteText();
+        }
+    }
+
     _updatePolygonNotePoints(note) {
         note.polygonNode.setAttribute(
             "points",

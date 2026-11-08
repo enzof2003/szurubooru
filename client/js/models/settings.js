@@ -12,6 +12,7 @@ const defaultSettings = {
     endlessScroll: false,
     keyboardShortcuts: true,
     transparencyGrid: true,
+    showNotes: true,
     fitMode: "fit-both",
     tagSuggestions: true,
     autoplayVideos: false,
