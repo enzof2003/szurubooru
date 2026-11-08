@@ -1,0 +1,10 @@
+# One entry per line:  JP = EN
+# Only entries whose Japanese term appears in the page's OCR text are sent to the LLM.
+# Touhou names seen in the test set (the model guessed wrong without these):
+屠自古 = Tojiko
+妖夢 = Youmu
+咲夜 = Sakuya
+えーりん = Eirin
+永琳 = Eirin
+鯨呑亭 = Geidontei
+赤蛮奇 = Sekibanki
