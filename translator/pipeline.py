@@ -35,7 +35,17 @@ from PIL import Image, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 80_000_000  # ~9000x9000; refuse decompression bombs beyond that
 
-JAPANESE_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿ｦ-ﾟㇰ-ㇿ々〆ヵヶ]")
+# A block is worth translating only if it has an actual kana/kanji LETTER. Marks that are
+# punctuation on their own (・ ー ゛ ゜ ヽ ゝ 々, halfwidth ･ ｰ ﾞ ﾟ) must not count, or a wordless
+# "・・・" / "ーー" bubble would be sent to the LLM (and retried once when it comes back empty).
+JAPANESE_RE = re.compile(
+    "[ぁ-ゖ"   # hiragana letters (no ゛゜ゝゞ)
+    "ァ-ヺ"    # katakana letters incl. ヵヶ (no ・ー ヽヾ)
+    "ㇰ-ㇿ"    # small katakana extension
+    "ｦ-ｯｱ-ﾝ"  # halfwidth katakana letters (no ･ ｰ ﾞ ﾟ)
+    "㐀-䶿一-鿿"  # kanji
+    "〆]"          # 〆
+)
 CLASSES = ("text", "onomatopoeia", "bubble", "panel")  # RF-DETR class ids 0..3
 
 
