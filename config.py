@@ -57,6 +57,7 @@ class Settings:
     allowed_url_hosts: tuple[str, ...] = field(default_factory=lambda: _list("ALLOWED_URL_HOSTS", ""))
     max_queue: int = field(default_factory=lambda: int(os.getenv("MAX_QUEUE", "16")))
     nice: int = field(default_factory=lambda: int(os.getenv("NICE", "10")))
+    warmup: bool = field(default_factory=lambda: _bool("WARMUP", True))  # tiny detect + OCR at startup
 
     # ---- CPU budget shared by detection and OCR
     threads: int = THREADS

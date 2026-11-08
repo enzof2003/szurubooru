@@ -27,7 +27,7 @@ from pipeline import LlmError, Pipeline, load_image
 
 log = logging.getLogger("mtl")
 settings = config.load()
-state: dict = {"waiting": 0}
+state: dict = {"waiting": 0, "warming": False}
 work_lock = asyncio.Lock()  # FIFO: one page in flight at a time
 
 
@@ -39,9 +39,27 @@ async def lifespan(_: FastAPI):
         os.nice(settings.nice)  # lower CPU priority than szurubooru; inherited by the OCR server
     state["pipeline"] = await run_in_threadpool(Pipeline, settings)
     log.info("ready: %d threads, OCR server %s", settings.threads, settings.ocr_server)
+    state["warming"] = settings.warmup  # set before the task runs: /health never says "ok" too early
+    warm = asyncio.create_task(warmup()) if settings.warmup else None
     yield
+    if warm:
+        warm.cancel()
     state["pipeline"].close()
     state.pop("pipeline", None)
+
+
+async def warmup() -> None:
+    """Runs once after startup, holding the work lock: real requests queue behind it."""
+    try:
+        async with work_lock:
+            t = await run_in_threadpool(state["pipeline"].warmup)
+        log.info("warm-up done: %s", t)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("warm-up failed (the first request will be slower)")
+    finally:
+        state["warming"] = False
 
 
 app = FastAPI(title="manga-translate", version="2.0", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -91,7 +109,8 @@ def fetch_url(url: str) -> bytes:
 def health():
     p = state.get("pipeline")
     ocr_ok = p is not None and (p.ocr_server is None or p.ocr_server.alive())
-    return {"status": "ok" if p and ocr_ok else "loading" if not p else "degraded",
+    status = "loading" if not p else "degraded" if not ocr_ok else "warming" if state["warming"] else "ok"
+    return {"status": status,
             "busy": work_lock.locked(), "queued": state["waiting"]}
 
 

@@ -57,6 +57,7 @@ kill-on-close; Linux `PR_SET_PDEATHSIG`). At startup the service refuses to run 
 | `THREADS` | 4 | ONNX Runtime threads, OCR server `-t/-tb`, OMP/MKL |
 | `MAX_QUEUE` | 16 | requests waiting behind the running one; beyond that → 503 + `Retry-After` |
 | `NICE` | 10 | Linux CPU priority (inherited by the OCR server) |
+| `WARMUP` | on | one tiny detection + OCR call at startup so the first page is not slow (cold model pages); `/health` reports `"warming"` until it is done |
 | `DET_MODEL` | `models/rfdetr/rfdetr-seg-2xlarge-nomask.onnx` | detector (mask head pruned, identical boxes) |
 | `DET_THRESHOLDS` | `text=0.25,onomatopoeia=0.2,bubble=0.5,panel=0.5` | per-class score thresholds |
 | `SKIP_CLASSES` | `onomatopoeia` | not OCR'd/translated, listed in `meta.skipped` (except onomatopoeia ≥ 90% inside a bubble) |
@@ -74,6 +75,7 @@ POST /translate                 multipart/form-data, field "image"
 POST /translate                 application/json {"image_url": "https://..."}
 POST /translate?translate=false detection + OCR only (no LLM call)
 GET  /health                    {"status": "ok", "busy": false, "queued": 0}  (no auth)
+                                status: loading -> warming -> ok ("degraded" if the OCR server died)
 ```
 
 Response: `{"width", "height", "blocks": [{"polygon", "bbox_px", "source", "translation"}], "meta"}`.

@@ -640,6 +640,23 @@ class Pipeline:
         if self.ocr_server:
             self.ocr_server.stop()
 
+    def warmup(self) -> dict:
+        """One tiny detection + OCR call so the first real page isn't slow.
+
+        Detection always runs at the model's fixed input size, and one OCR call goes through the
+        whole vision encoder + language model, so every weight page is read in (the GGUF is
+        mmapped: on a cold page cache the first page's OCR is ~10x slower otherwise)."""
+        t: dict = {}
+        img = Image.new("RGB", (256, 256), "white")
+        with self._lock:
+            t0 = time.perf_counter()
+            self.detector(img)
+            t["detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            t0 = time.perf_counter()
+            self.ocr(img.crop((0, 0, 64, 32)))
+            t["ocr_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return t
+
     def detect_and_ocr(self, img: Image.Image) -> tuple[list[dict], list[dict], dict]:
         """Returns (japanese_notes, skipped, timings_ms). Serialized: one page at a time."""
         t: dict = {}
