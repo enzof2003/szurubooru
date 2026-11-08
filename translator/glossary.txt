@@ -1,10 +1,352 @@
 # One entry per line:  JP = EN
-# Only entries whose Japanese term appears in the page's OCR text are sent to the LLM.
-# Touhou names seen in the test set (the model guessed wrong without these):
-屠自古 = Tojiko
-妖夢 = Youmu
+# Only entries whose Japanese term appears in the page's OCR text are sent to the LLM,
+# so a long list costs nothing on pages that don't use the terms.
+# Full names come before short forms. Single-kanji names that are also common words
+# (文, 紫, 藍, 空, 星, 雛…) are deliberately NOT listed alone — they'd match everywhere.
+# Text in [brackets] is a note for the LLM, not part of the translation.
+
+# ===== Touhou: protagonists =====
+博麗霊夢 = Reimu Hakurei
+霊夢 = Reimu
+霧雨魔理沙 = Marisa Kirisame
+魔理沙 = Marisa
+東風谷早苗 = Sanae Kochiya
+早苗 = Sanae
+
+# ===== EoSD / Scarlet Devil Mansion =====
+ルーミア = Rumia
+大妖精 = Daiyousei
+チルノ = Cirno
+紅美鈴 = Hong Meiling
+美鈴 = Meiling
+小悪魔 = Koakuma
+パチュリー・ノーレッジ = Patchouli Knowledge
+パチュリー = Patchouli
+十六夜咲夜 = Sakuya Izayoi
 咲夜 = Sakuya
-えーりん = Eirin
+レミリア・スカーレット = Remilia Scarlet
+レミリア = Remilia
+フランドール・スカーレット = Flandre Scarlet
+フランドール = Flandre
+フラン = Flan [Flandre's nickname]
+
+# ===== PCB =====
+レティ・ホワイトロック = Letty Whiterock
+橙 = Chen [only when it is a character's name]
+アリス・マーガトロイド = Alice Margatroid
+アリス = Alice
+リリーホワイト = Lily White
+ルナサ・プリズムリバー = Lunasa Prismriver
+メルラン・プリズムリバー = Merlin Prismriver
+リリカ・プリズムリバー = Lyrica Prismriver
+魂魄妖夢 = Youmu Konpaku
+妖夢 = Youmu
+西行寺幽々子 = Yuyuko Saigyouji
+幽々子 = Yuyuko
+八雲藍 = Ran Yakumo
+八雲紫 = Yukari Yakumo
+ゆかりん = Yukarin [Yukari's nickname]
+
+# ===== IaMP / SWR / Oni =====
+伊吹萃香 = Suika Ibuki
+萃香 = Suika
+星熊勇儀 = Yuugi Hoshiguma
+勇儀 = Yuugi
+茨木華扇 = Kasen Ibaraki
+華扇 = Kasen
+永江衣玖 = Iku Nagae
+衣玖 = Iku
+比那名居天子 = Tenshi Hinanawi
+天子 = Tenshi
+
+# ===== IN / Eientei =====
+リグル・ナイトバグ = Wriggle Nightbug
+リグル = Wriggle
+ミスティア・ローレライ = Mystia Lorelei
+ミスティア = Mystia
+上白沢慧音 = Keine Kamishirasawa
+慧音 = Keine
+因幡てゐ = Tewi Inaba
+てゐ = Tewi
+鈴仙・優曇華院・イナバ = Reisen Udongein Inaba
+鈴仙 = Reisen
+優曇華 = Udonge [Reisen's nickname]
+うどんげ = Udonge [Reisen's nickname]
+八意永琳 = Eirin Yagokoro
 永琳 = Eirin
-鯨呑亭 = Geidontei
+えーりん = Eirin
+蓬莱山輝夜 = Kaguya Houraisan
+輝夜 = Kaguya
+藤原妹紅 = Fujiwara no Mokou
+妹紅 = Mokou
+
+# ===== PoFV =====
+射命丸文 = Aya Shameimaru
+あやや = Ayaya [Aya's nickname]
+メディスン・メランコリー = Medicine Melancholy
+風見幽香 = Yuuka Kazami
+幽香 = Yuuka
+小野塚小町 = Komachi Onozuka
+小町 = Komachi
+四季映姫・ヤマザナドゥ = Eiki Shiki, Yamaxanadu
+映姫 = Eiki
+
+# ===== MoF / Youkai Mountain & Moriya =====
+秋静葉 = Shizuha Aki
+秋穣子 = Minoriko Aki
+鍵山雛 = Hina Kagiyama
+河城にとり = Nitori Kawashiro
+にとり = Nitori
+犬走椛 = Momiji Inubashiri
+椛 = Momiji
+八坂神奈子 = Kanako Yasaka
+神奈子 = Kanako
+洩矢諏訪子 = Suwako Moriya
+諏訪子 = Suwako
+姫海棠はたて = Hatate Himekaidou
+はたて = Hatate
+
+# ===== SA / Underground =====
+キスメ = Kisume
+黒谷ヤマメ = Yamame Kurodani
+水橋パルスィ = Parsee Mizuhashi
+パルスィ = Parsee
+古明地さとり = Satori Komeiji
+火焔猫燐 = Rin Kaenbyou
+お燐 = Orin
+霊烏路空 = Utsuho Reiuji
+お空 = Okuu
+古明地こいし = Koishi Komeiji
+こいし = Koishi
+
+# ===== UFO / Myouren Temple =====
+ナズーリン = Nazrin
+多々良小傘 = Kogasa Tatara
+小傘 = Kogasa
+雲居一輪 = Ichirin Kumoi
+一輪 = Ichirin
+雲山 = Unzan
+村紗水蜜 = Minamitsu Murasa
+村紗 = Murasa
+寅丸星 = Shou Toramaru
+聖白蓮 = Byakuren Hijiri
+白蓮 = Byakuren
+封獣ぬえ = Nue Houjuu
+ぬえ = Nue
+幽谷響子 = Kyouko Kasodani
+響子 = Kyouko
+二ッ岩マミゾウ = Mamizou Futatsuiwa
+マミゾウ = Mamizou
+
+# ===== Fairies =====
+サニーミルク = Sunny Milk
+ルナチャイルド = Luna Child
+スターサファイア = Star Sapphire
+クラウンピース = Clownpiece
+エタニティラルバ = Eternity Larva
+
+# ===== TD / Divine Spirit Mausoleum =====
+宮古芳香 = Yoshika Miyako
+芳香 = Yoshika
+霍青娥 = Seiga Kaku
+青娥 = Seiga
+蘇我屠自古 = Soga no Tojiko
+屠自古 = Tojiko
+物部布都 = Mononobe no Futo
+布都 = Futo
+豊聡耳神子 = Toyosatomimi no Miko
+神子 = Miko [Toyosatomimi no Miko, when it's the character]
+秦こころ = Hata no Kokoro
+
+# ===== DDC =====
+わかさぎ姫 = Wakasagihime
 赤蛮奇 = Sekibanki
+今泉影狼 = Kagerou Imaizumi
+影狼 = Kagerou
+九十九弁々 = Benben Tsukumo
+九十九八橋 = Yatsuhashi Tsukumo
+鬼人正邪 = Seija Kijin
+正邪 = Seija
+少名針妙丸 = Shinmyoumaru Sukuna
+針妙丸 = Shinmyoumaru
+堀川雷鼓 = Raiko Horikawa
+雷鼓 = Raiko
+
+# ===== LoLK / Moon =====
+清蘭 = Seiran
+鈴瑚 = Ringo
+ドレミー・スイート = Doremy Sweet
+ドレミー = Doremy
+稀神サグメ = Sagume Kishin
+サグメ = Sagume
+純狐 = Junko
+ヘカーティア・ラピスラズリ = Hecatia Lapislazuli
+ヘカーティア = Hecatia
+綿月豊姫 = Watatsuki no Toyohime
+綿月依姫 = Watatsuki no Yorihime
+玉兎 = moon rabbit
+
+# ===== HSiFS =====
+坂田ネムノ = Nemuno Sakata
+高麗野あうん = Aunn Komano
+あうん = Aunn
+矢田寺成美 = Narumi Yatadera
+丁礼田舞 = Mai Teireida
+爾子田里乃 = Satono Nishida
+摩多羅隠岐奈 = Okina Matara
+隠岐奈 = Okina
+
+# ===== AoCF =====
+依神女苑 = Joon Yorigami
+依神紫苑 = Shion Yorigami
+宇佐見菫子 = Sumireko Usami
+菫子 = Sumireko
+
+# ===== WBaWC =====
+戎瓔花 = Eika Ebisu
+牛崎潤美 = Urumi Ushizaki
+庭渡久侘歌 = Kutaka Niwatari
+吉弔八千慧 = Yachie Kicchou
+杖刀偶磨弓 = Mayumi Joutouguu
+埴安神袿姫 = Keiki Haniyasushin
+驪駒早鬼 = Saki Kurokoma
+
+# ===== UM =====
+豪徳寺ミケ = Mike Goutokuji
+山城たかね = Takane Yamashiro
+駒草山如 = Sannyo Komakusa
+玉造魅須丸 = Misumaru Tamatsukuri
+菅牧典 = Tsukasa Kudamaki
+飯綱丸龍 = Megumu Iizunamaru
+天弓千亦 = Chimata Tenkyuu
+姫虫百々世 = Momoyo Himemushi
+
+# ===== UDoALG =====
+孫美天 = Son Biten
+三頭慧ノ子 = Enoko Mitsugashira
+天火人ちやり = Chiyari Tenkajin
+豫母都日狭美 = Hisami Yomotsu
+日白残無 = Zanmu Nippaku
+
+# ===== Books / side characters =====
+本居小鈴 = Kosuzu Motoori
+小鈴 = Kosuzu
+稗田阿求 = Hieda no Akyuu
+阿求 = Akyuu
+森近霖之助 = Rinnosuke Morichika
+霖之助 = Rinnosuke
+こーりん = Kourin [Rinnosuke's nickname]
+朱鷺子 = Tokiko
+奥野田美宵 = Miyoi Okunoda
+美宵 = Miyoi
+宇佐見蓮子 = Renko Usami
+マエリベリー・ハーン = Maribel Hearn
+メリー = Merry
+
+# ===== Places =====
+幻想郷 = Gensokyo
+博麗神社 = Hakurei Shrine
+博麗大結界 = Great Hakurei Barrier
+守矢神社 = Moriya Shrine
+紅魔館 = Scarlet Devil Mansion
+霧の湖 = Misty Lake
+魔法の森 = Forest of Magic
+香霖堂 = Kourindou
+人間の里 = Human Village
+人里 = Human Village
+白玉楼 = Hakugyokurou
+冥界 = Netherworld
+迷いの竹林 = Bamboo Forest of the Lost
+永遠亭 = Eientei
+妖怪の山 = Youkai Mountain
+玄武の沢 = Genbu Ravine
+旧都 = Former Capital
+旧地獄 = Former Hell
+地霊殿 = Palace of the Earth Spirits
+命蓮寺 = Myouren Temple
+神霊廟 = Divine Spirit Mausoleum
+輝針城 = Shining Needle Castle
+月の都 = Lunar Capital
+太陽の畑 = Garden of the Sun
+無縁塚 = Muenzuka
+三途の川 = Sanzu River
+天界 = Heaven [Celestial realm]
+畜生界 = Animal Realm
+鈴奈庵 = Suzunaan
+鯨呑亭 = Geidontei
+外の世界 = the Outside World
+
+# ===== Touhou terms =====
+妖怪 = youkai
+妖精 = fairy
+巫女 = shrine maiden
+天狗 = tengu
+鴉天狗 = crow tengu
+白狼天狗 = white wolf tengu
+河童 = kappa
+吸血鬼 = vampire
+半霊 = half-phantom
+式神 = shikigami
+弾幕 = danmaku
+スペルカード = spell card
+異変 = incident
+賽銭箱 = donation box
+練酒 = nerizake [thick milky-white sake; keep the word, it's often a double meaning]
+
+# ===== Adult terms: translate naturally and explicitly =====
+ふたなり = futanari [may shorten to "futa"]
+ちんぽ = cock
+おちんぽ = cock
+ちんちん = dick
+おまんこ = pussy
+まんこ = pussy
+射精 = cum [verb: "cum"; noun: "cumming / ejaculation" only if clinical in tone]
+精液 = cum [semen]
+ザーメン = cum
+中出し = creampie [or "cum inside", depending on the sentence]
+孕ませ = breed / knock up
+孕む = get pregnant
+種付け = breeding
+イク = cum [orgasm: "I'm cumming"]
+イっちゃう = I'm cumming
+絶頂 = climax
+アクメ = climax [orgasm]
+潮吹き = squirting
+搾精 = milking [semen extraction]
+肉便器 = cumdump
+マゾ = masochist [short "maso"; OCR may misread マゾ as マツ]
+ドM = total masochist
+ドS = total sadist
+雌 = bitch [in sexual context; "female" otherwise]
+メス = bitch [in sexual context; also means "scalpel" — check context]
+雌堕ち = falling into a bitch [corruption trope]
+快楽堕ち = pleasure-corruption
+堕ち = corruption [the "fall" trope]
+催眠 = hypnosis
+触手 = tentacles
+奴隷 = slave
+調教 = training [as in BDSM conditioning]
+首輪 = collar
+騎乗位 = cowgirl position
+正常位 = missionary position
+後背位 = doggy style
+パイズリ = titjob
+フェラ = blowjob
+イラマチオ = face-fucking [deepthroat]
+手コキ = handjob
+足コキ = footjob
+素股 = thighjob
+前立腺 = prostate
+♡ = ♡ [keep the heart symbols as they are]
+
+# ===== Known OCR misreads / special notations =====
+マツ奴隷 = masochist slave [OCR misread of マゾ奴隷]
+正 = tally mark [when repeated (正正正…), it's a Japanese tally: each full 正 = 5, partial forms (一, T, F, 下) = 1–4; translate as the total number, e.g. "25" or "||||| ×5"]
+
+# ===== Grammar: who does what (giving/receiving) =====
+# Partial forms, matched as substrings of the OCR text.
+飲ませてあげ = I'll let you drink [the speaker gives; the listener drinks what the speaker provides]
+させてあげ = I'll let you ~ [the speaker grants the favour]
+てあげ = [grammar note, not a rendering: the speaker does it for the listener]
+てもらう = [grammar note, not a rendering: the listener does it for the speaker]
+溜めた = saved up / pent up [usually the speaker's own, when they offer it]
