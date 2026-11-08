@@ -10,6 +10,7 @@ const POLL_INTERVAL_MS = 4000;
 const SHOW_FAILURE_FOR_MS = 60 * 60 * 1000;
 
 const ACTIVE = ["pending", "running"];
+const TAG_DONE = "machine_translated";
 
 // The "Translate" button in the post sidebar's top navigation row.
 // The job itself runs on the server; this only queues it and polls status,
@@ -24,8 +25,15 @@ class PostTranslateControl {
         this._editMode = editMode;
         this._pollTimer = null;
         this._watching = false; // saw this job active while on the page
+        this._doneHere = false; // a job finished while on this page
 
         this._linkNode.addEventListener("click", (e) => this._evtClick(e));
+        // tags change when the post is saved (edit mode) or refreshed
+        this._post.addEventListener("change", () => {
+            this._doneHere = false; // saved post: its tags are the truth
+            this._updateButton();
+        });
+        this._updateButton();
         this._fetchStatus(true);
     }
 
@@ -37,13 +45,33 @@ class PostTranslateControl {
         return document.body.contains(this._buttonNode);
     }
 
+    // The server refuses posts tagged machine_translated (409); removing the
+    // tag is how a user asks for a fresh translation.
+    get _translated() {
+        return this._doneHere || this._post.tags.isTaggedWith(TAG_DONE);
+    }
+
     _setBusy(busy) {
         this._busy = busy;
-        this._iconNode.className = busy
-            ? "fa fa-circle-o-notch fa-spin"
-            : "fa fa-language";
-        this._linkNode.classList.toggle("inactive", busy);
-        this._linkNode.title = busy ? "Translation in progress…" : "Translate";
+        this._updateButton();
+    }
+
+    _updateButton() {
+        let icon = "fa fa-language";
+        let title = "Translate";
+        if (this._busy) {
+            icon = "fa fa-circle-o-notch fa-spin";
+            title = "Translation in progress…";
+        } else if (this._translated) {
+            icon = "fa fa-check";
+            title = "Translated ✓ (remove the " + TAG_DONE + " tag to redo)";
+        }
+        this._iconNode.className = icon;
+        this._linkNode.classList.toggle(
+            "inactive",
+            this._busy || this._translated
+        );
+        this._linkNode.title = title;
     }
 
     _message(kind, text) {
@@ -55,7 +83,7 @@ class PostTranslateControl {
 
     _evtClick(e) {
         e.preventDefault();
-        if (this._busy) {
+        if (this._busy || this._translated) {
             return;
         }
         this._setBusy(true);
@@ -145,16 +173,15 @@ class PostTranslateControl {
             (job.notesAdded === 1 ? " note" : " notes") +
             " added";
         if (job.notesReplaced) {
-            text += " (" + job.notesReplaced + " [MT?] replaced)";
+            text += " (" + job.notesReplaced + " previous MT notes replaced)";
         }
         if (job.notesSkipped) {
             text += ", " + job.notesSkipped + " skipped";
         }
         text += ".";
-        if (!job.notesAdded && !job.notesReplaced) {
-            this._message("showSuccess", text);
-            return;
-        }
+        // A finished run always tags the post machine_translated.
+        this._doneHere = true;
+        this._updateButton();
         if (this._editMode) {
             // Don't clobber unsaved edits; the post version changed anyway.
             this._message(
@@ -164,7 +191,11 @@ class PostTranslateControl {
             return;
         }
         this._post.refresh().then(
-            () => this._message("showSuccess", text),
+            () => {
+                this._doneHere = false; // the refreshed tags are the truth
+                this._updateButton();
+                this._message("showSuccess", text);
+            },
             (error) => this._message("showError", error.message)
         );
     }

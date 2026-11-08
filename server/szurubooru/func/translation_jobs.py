@@ -14,6 +14,11 @@ Configuration (environment of the server container):
                           (?translate=false), every note becomes "[MT?]"
     TRANSLATE_TIMEOUT     seconds to wait for one translator response, 900
 
+Re-run control: a finished job tags the post machine_translated (plus
+translation_incomplete when some blocks stayed untranslated). Tagged posts
+are refused with 409; removing the tag allows a new run, which replaces all
+[MT]/[MT?] notes and never touches unmarked (human) notes.
+
 Restart semantics: pending jobs just stay queued; a job found "running" at
 startup was interrupted, and is re-queued once (attempts < 2), else failed.
 """
@@ -35,7 +40,7 @@ import sqlalchemy.exc
 import sqlalchemy.orm.exc
 
 from szurubooru import db, errors, model, rest
-from szurubooru.func import cache, posts, snapshots, users, versions
+from szurubooru.func import cache, posts, snapshots, tags, users, versions
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +48,12 @@ TRANSLATABLE_TYPES = (model.Post.TYPE_IMAGE, model.Post.TYPE_ANIMATION)
 MAX_ATTEMPTS = 2  # first run + one retry after an interrupted run
 MERGE_RETRIES = 5  # post version conflicts
 QUEUE_FULL_RETRIES = 40  # translator 503 "queue full", ~30 s apart
-OVERLAP_THRESHOLD = 0.5  # intersection / smaller box area
 MT_PREFIX_RE = re.compile(r"^\s*\[MT\??\]")  # [MT] or [MT?]
 MT_PLACEHOLDER_RE = re.compile(r"^\s*\[MT\?\]")  # untranslated
+# Re-run control: a post with TAG_DONE is not translated again (409) until
+# someone removes the tag. TAG_INCOMPLETE marks runs that left [MT?] notes.
+TAG_DONE = "machine_translated"
+TAG_INCOMPLETE = "translation_incomplete"
 
 _wake = threading.Event()
 _worker_started = False
@@ -60,6 +68,10 @@ class InvalidTranslationPostTypeError(errors.ValidationError):
 
 
 class TranslationJobAlreadyActiveError(errors.IntegrityError):
+    pass
+
+
+class PostAlreadyTranslatedError(errors.IntegrityError):
     pass
 
 
@@ -138,6 +150,11 @@ def create_job(
         raise InvalidTranslationPostTypeError(
             "Only image and GIF posts can be translated."
         )
+    if has_tag(post, TAG_DONE):
+        raise PostAlreadyTranslatedError(
+            "This post is already machine-translated. Remove the %r tag "
+            "to translate it again." % TAG_DONE
+        )
     if _get_active_job(post.post_id):
         raise TranslationJobAlreadyActiveError(
             "A translation is already in progress for this post."
@@ -205,28 +222,6 @@ def serialize_job(
 # --- note merging (pure) ---------------------------------------------------
 
 
-def _bbox(polygon: Any) -> Tuple[float, float, float, float]:
-    xs = [float(p[0]) for p in polygon]
-    ys = [float(p[1]) for p in polygon]
-    return min(xs), min(ys), max(xs), max(ys)
-
-
-def boxes_overlap(polygon_a: Any, polygon_b: Any) -> bool:
-    """True when the bounding boxes overlap by at least OVERLAP_THRESHOLD
-    of the smaller box (so a re-run of the same page matches, but two
-    bubbles that merely touch do not)."""
-    ax1, ay1, ax2, ay2 = _bbox(polygon_a)
-    bx1, by1, bx2, by2 = _bbox(polygon_b)
-    iw = min(ax2, bx2) - max(ax1, bx1)
-    ih = min(ay2, by2) - max(ay1, by1)
-    if iw <= 0 or ih <= 0:
-        return False
-    smaller = min((ax2 - ax1) * (ay2 - ay1), (bx2 - bx1) * (by2 - by1))
-    if smaller <= 0:
-        return True
-    return (iw * ih) / smaller >= OVERLAP_THRESHOLD
-
-
 def _clean_polygon(polygon: Any) -> Optional[List[List[float]]]:
     if not isinstance(polygon, (list, tuple)) or len(polygon) < 3:
         return None
@@ -261,31 +256,30 @@ def is_mt_placeholder(text: str) -> bool:
     return bool(MT_PLACEHOLDER_RE.match(text or ""))
 
 
+def has_tag(post: model.Post, name: str) -> bool:
+    name = name.lower()
+    return any(
+        tag_name.name.lower() == name
+        for tag in post.tags
+        for tag_name in tag.names
+    )
+
+
 def plan_notes(
     existing: List[Tuple[Any, str]], blocks: List[Dict[str, Any]]
 ) -> Tuple[List[Dict[str, Any]], List[int], int]:
     """Return (notes to add, indexes of existing notes to remove, skipped).
 
-    existing: (polygon, text) of the post's current notes.
-    - [MT] notes and notes without a marker are never touched; a block
-      overlapping an [MT] note is skipped.
-    - [MT?] notes are machine placeholders: the overlapping ones are
-      replaced by the new note, unless it would be the very same text
-      (re-running without the LLM must not churn post versions).
-    - Unusable blocks (bad polygon, no text at all) are skipped.
+    A run (first or forced by removing the machine_translated tag) replaces
+    ALL existing [MT] and [MT?] notes with the new result. Notes without a
+    marker (human-written) are never touched. Unusable blocks (bad polygon,
+    no text at all) are skipped.
     """
-    confirmed = [
-        poly
-        for poly, text in existing
-        if is_mt_note(text) and not is_mt_placeholder(text)
-    ]
-    placeholders = [
-        (index, poly, text)
-        for index, (poly, text) in enumerate(existing)
-        if is_mt_placeholder(text)
+    to_remove = [
+        index for index, (_poly, text) in enumerate(existing)
+        if is_mt_note(text)
     ]
     to_add = []
-    to_remove = set()
     skipped = 0
     for block in blocks or []:
         if not isinstance(block, dict):
@@ -301,21 +295,29 @@ def plan_notes(
         if polygon is None or not ((source or "").strip() or translation):
             skipped += 1
             continue
-        if any(boxes_overlap(polygon, mt) for mt in confirmed):
-            skipped += 1
-            continue
-        text = note_text(source, translation)
-        hits = [
-            (index, old_text)
-            for index, poly, old_text in placeholders
-            if boxes_overlap(polygon, poly)
+        to_add.append(
+            {"polygon": polygon, "text": note_text(source, translation)}
+        )
+    return to_add, to_remove, skipped
+
+
+def _update_tags(post: model.Post, incomplete: bool) -> List[model.Tag]:
+    """Add machine_translated (+ translation_incomplete if needed), remove
+    translation_incomplete after a complete run. Returns created tags."""
+    wanted = [TAG_DONE] + ([TAG_INCOMPLETE] if incomplete else [])
+    missing = [name for name in wanted if not has_tag(post, name)]
+    new_tags = []
+    if missing:
+        existing_tags, new_tags = tags.get_or_create_tags_by_names(missing)
+        post.tags = post.tags + existing_tags + new_tags
+    if not incomplete and has_tag(post, TAG_INCOMPLETE):
+        post.tags = [
+            tag for tag in post.tags
+            if not any(
+                n.name.lower() == TAG_INCOMPLETE for n in tag.names
+            )
         ]
-        if any(old_text == text for _index, old_text in hits):
-            skipped += 1
-            continue
-        to_remove.update(index for index, _old_text in hits)
-        to_add.append({"polygon": polygon, "text": text})
-    return to_add, sorted(to_remove), skipped
+    return new_tags
 
 
 # --- translator client -----------------------------------------------------
@@ -483,19 +485,20 @@ def _merge_result(job_id: int, post_id: int, blocks: List[Any]) -> None:
             current = list(post.notes)
             existing = [(note.polygon, note.text) for note in current]
             to_add, to_remove, skipped = plan_notes(existing, blocks)
-            if to_add or to_remove:
-                for index in to_remove:
-                    post.notes.remove(current[index])  # delete-orphan
-                for note in to_add:
-                    post.notes.append(
-                        model.PostNote(
-                            polygon=note["polygon"], text=note["text"]
-                        )
-                    )
-                versions.bump_version(post)
-                post.last_edit_time = datetime.utcnow()
-                db.session.flush()
-                snapshots.modify(post, job.user)
+            incomplete = any(is_mt_placeholder(n["text"]) for n in to_add)
+            for index in to_remove:
+                post.notes.remove(current[index])  # delete-orphan
+            for note in to_add:
+                post.notes.append(
+                    model.PostNote(polygon=note["polygon"], text=note["text"])
+                )
+            new_tags = _update_tags(post, incomplete)
+            versions.bump_version(post)
+            post.last_edit_time = datetime.utcnow()
+            db.session.flush()
+            for tag in new_tags:
+                snapshots.create(tag, job.user)
+            snapshots.modify(post, job.user)
             job.status = model.TranslationJob.STATUS_DONE
             job.notes_added = len(to_add)
             job.notes_replaced = len(to_remove)
@@ -505,8 +508,9 @@ def _merge_result(job_id: int, post_id: int, blocks: List[Any]) -> None:
             cache.purge()
             logger.info(
                 "Translation job %d: post %d, %d notes added "
-                "(%d [MT?] replaced), %d skipped",
+                "(%d old MT notes removed), %d skipped%s",
                 job_id, post_id, len(to_add), len(to_remove), skipped,
+                ", incomplete" if incomplete else "",
             )
             return
         except sa.orm.exc.StaleDataError:
