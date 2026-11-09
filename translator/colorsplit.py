@@ -26,6 +26,7 @@ Plain black-on-white text has no tinted ink at all, so it never splits.
 
 from __future__ import annotations
 
+import colorsys
 from dataclasses import dataclass
 
 import numpy as np
@@ -42,6 +43,8 @@ MIXED_PURITY = 0.8    # below this the line is mixed (see step 5)
 HUE_WIN = 15.0        # half-width (deg) of the dominant hue window
 EDGE_MARGIN = 0.3     # OCR crop margin past the block's outer edge, in line widths
 MAX_LINE_GAP = 1.5    # blank stretch (in line widths) that ends a line's text
+DISPLAY_S_MIN = 0.6   # returned colour: HSL saturation floor ...
+DISPLAY_L = (0.45, 0.60)  # ... and lightness range
 
 
 @dataclass
@@ -57,7 +60,21 @@ class Group:
 
     @property
     def hex(self) -> str:
+        """Display colour: the measured one boosted to what the eye sees (see display_rgb)."""
+        return "#%02x%02x%02x" % display_rgb(self.rgb)
+
+    @property
+    def measured_hex(self) -> str:
         return "#%02x%02x%02x" % self.rgb
+
+
+def display_rgb(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Same hue, HSL saturation >= DISPLAY_S_MIN and lightness clamped to DISPLAY_L: thin
+    anti-aliased outlines measure darker/greyer than they look (bright yellow -> olive #929703)."""
+    h, l, s = colorsys.rgb_to_hls(*(c / 255 for c in rgb))
+    s = max(s, DISPLAY_S_MIN)
+    l = min(max(l, DISPLAY_L[0]), DISPLAY_L[1])
+    return tuple(round(c * 255) for c in colorsys.hls_to_rgb(h, l, s))
 
 
 def _dilate(mask: np.ndarray, r: int) -> np.ndarray:

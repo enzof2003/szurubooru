@@ -80,7 +80,8 @@ GET  /health                    {"status": "ok", "busy": false, "queued": 0}  (n
 ```
 
 Response: `{"width", "height", "blocks": [{"polygon", "bbox_px", "source", "translation"}], "meta"}`.
-Blocks split by speaker colour also carry `"color": "#rrggbb"` (the measured text colour).
+Blocks split by speaker colour also carry `"color": "#rrggbb"`: the measured text colour, boosted for
+display (same hue, HSL S ≥ 60%, L 45–60%; the raw value is in `meta.notes[].measured_color`).
 `translation` is `null` (never `""`) when the LLM gave nothing for that block even after the retry;
 such blocks are also listed in `meta.untranslated` (`[{"id", "source"}]`, empty list when complete).
 `polygon` is normalized to 0..1 (szurubooru note format); for a bubble it is the bubble's box.

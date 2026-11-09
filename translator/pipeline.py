@@ -512,7 +512,8 @@ def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
         for g in groups:
             out.append({**n, "box": [float(v) for v in g.box], "text_box": [float(v) for v in g.box],
                         "parts": [[float(v) for v in b] for b in g.lines], "crop": g.crop,
-                        "vertical": g.vertical, "color": g.hex, "rgb": g.rgb, "split_from": i})
+                        "vertical": g.vertical, "color": g.hex, "measured_color": g.measured_hex,
+                        "rgb": g.rgb, "split_from": i})
     split = [n for n in out if "rgb" in n]
     for n, letter in zip(split, colorsplit.speaker_labels([n["rgb"] for n in split])):
         n["speaker"] = letter
@@ -824,7 +825,7 @@ class Pipeline:
         for n, tr in zip(notes, translations):
             b = {**geom(n["box"]), "source": n["source"]}
             if n.get("color"):
-                b["color"] = n["color"]  # measured text colour of a split speaker group, #rrggbb
+                b["color"] = n["color"]  # text colour of a split speaker group (display-boosted), #rrggbb
             if translate:
                 b["translation"] = tr  # None = the LLM gave nothing for it even after the retry
             blocks.append(b)
@@ -841,7 +842,7 @@ class Pipeline:
                            "parts": len(n["parts"]), "ocr_tokens": n["ocr_usage"].get("prompt_tokens"),
                            **({"origin": n["origin"]} if "origin" in n else {}),
                            **({"upscale": n["upscale"]} if "upscale" in n else {}),
-                           **({k: n[k] for k in ("color", "speaker", "split_from") if k in n})}
+                           **({k: n[k] for k in ("color", "measured_color", "speaker", "split_from") if k in n})}
                           for n in notes],
                 "skipped": [{**geom(d["box"]), "class": d["cls"], "reason": d["reason"],
                              **({"source": d["source"]} if "source" in d else {})} for d in skipped],
