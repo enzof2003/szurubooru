@@ -576,6 +576,33 @@ def read_glossary(path: Path) -> list[tuple[str, str]]:
     return entries
 
 
+# Post tags sent by the caller as image context: {"character": [...], "series": [...], "artist": [...]}.
+CONTEXT_ROLES = ("character", "series", "artist")
+CONTEXT_MAX_TAGS = 30
+CONTEXT_MAX_LEN = 100
+
+
+def clean_context_tags(raw) -> dict[str, list[str]]:
+    """Validate/normalise the request's context_tags. Unknown roles and non-string tags are dropped;
+    raises ValueError when it isn't an object of lists."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("context_tags must be an object like {\"character\": [\"tag\", ...]}")
+    out: dict[str, list[str]] = {}
+    for role in CONTEXT_ROLES:
+        tags = raw.get(role) or []
+        if not isinstance(tags, list):
+            raise ValueError(f"context_tags.{role} must be a list of strings")
+        clean = []
+        for t in tags:
+            if isinstance(t, str) and t.strip() and len(t) <= CONTEXT_MAX_LEN and t.strip() not in clean:
+                clean.append(t.strip())
+        if clean:
+            out[role] = clean[:CONTEXT_MAX_TAGS]
+    return out
+
+
 class LlmError(RuntimeError):
     pass
 
@@ -589,11 +616,42 @@ class Translator:
         joined = "\n".join(sources)
         return {jp: en for jp, en in read_glossary(self.s.glossary_file) if jp in joined}
 
+    def _character_notes(self) -> dict[str, str]:
+        return {tag.lower(): note for tag, note in read_glossary(self.s.characters_file)}
+
+    def _context(self, context_tags: dict[str, list[str]] | None) -> str:
+        """Image context from the post's tags; "" when there are none (prompt then unchanged)."""
+        if not context_tags:
+            return ""
+
+        def show(tags: list[str]) -> str:
+            return ", ".join(t.replace("_", " ") for t in tags)
+
+        chars, series, artists = (context_tags.get(r) or [] for r in CONTEXT_ROLES)
+        parts = []
+        if chars:
+            parts.append("characters: " + show(chars))
+        if series:
+            parts.append("series: " + show(series))
+        lines = []
+        if parts:
+            lines.append("Characters/series in this image: " + "; ".join(parts))
+        if artists:
+            lines.append("Artist: " + show(artists))
+        known = self._character_notes()
+        notes = [f"- {known[t.lower()]}" for t in chars if t.lower() in known]
+        if notes:
+            lines.append(
+                "Character notes (who they are; use them to recognise puns and lines that are literal "
+                "for that character, but don't force them into lines they don't fit):\n" + "\n".join(notes)
+            )
+        return "\n".join(lines)
+
     def _instructions(self) -> str:
         f = self.s.instructions_file
         return f.read_text(encoding="utf-8").strip() if f.exists() else ""
 
-    def _system_prompt(self, sources: list[str], speakers: bool = False) -> str:
+    def _system_prompt(self, sources: list[str], speakers: bool = False, context: str = "") -> str:
         s = self.s
         instructions = self._instructions()
         glossary = list(self._page_glossary(sources).items())
@@ -619,6 +677,12 @@ class Translator:
             parts.append(
                 "Translator instructions (the input JSON repeats them as \"instructions\", right before the "
                 "segments; they are binding for every segment):\n" + instructions
+            )
+        if context:
+            parts.append(
+                "Image context from the post's tags (the input JSON repeats it as \"context\"): the tagged "
+                "characters are usually the ones speaking or being talked about. Use their names, natures and "
+                "powers to understand the jokes.\n" + context
             )
         if glossary:
             parts.append(
@@ -660,15 +724,17 @@ class Translator:
                 continue
         return out
 
-    def translate(self, img: Image.Image, blocks: list[dict]) -> tuple[list[str | None], dict]:
+    def translate(self, img: Image.Image, blocks: list[dict],
+                  context_tags: dict[str, list[str]] | None = None) -> tuple[list[str | None], dict]:
         """One call for the page; segments the LLM dropped or left empty get one retry on their own.
         Still-missing segments come back as None (listed in missing_ids), never as ""."""
         ids = list(range(len(blocks)))
-        got, meta = self._call(img, blocks, ids)
+        context = self._context(context_tags)
+        got, meta = self._call(img, blocks, ids, context)
         meta["retried_ids"] = [i for i in ids if i not in got]
         if meta["retried_ids"]:
             try:
-                more, m2 = self._call(img, blocks, meta["retried_ids"])
+                more, m2 = self._call(img, blocks, meta["retried_ids"], context)
                 got.update(more)
                 for k, v in m2["usage"].items():
                     meta["usage"][k] = meta["usage"].get(k, 0) + v
@@ -676,9 +742,12 @@ class Translator:
             except LlmError as e:  # keep what the first call returned
                 meta["retry_error"] = str(e)
         meta["missing_ids"] = [i for i in ids if i not in got]
+        if context:
+            meta["context"] = context
         return [got.get(i) for i in ids], meta
 
-    def _call(self, img: Image.Image, blocks: list[dict], ids: list[int]) -> tuple[dict[int, str], dict]:
+    def _call(self, img: Image.Image, blocks: list[dict], ids: list[int],
+              context: str = "") -> tuple[dict[int, str], dict]:
         """Translate blocks[ids] (ids kept as segment ids). Returns ({id: non-empty text}, meta)."""
         s = self.s
         W, H = img.size
@@ -699,6 +768,8 @@ class Translator:
             # Repeated right before the segments, like the glossary: Gemma ignored them when they
             # were only in the system prompt.
             payload["instructions"] = instructions
+        if context:
+            payload["context"] = context
         payload["segments"] = segments
         glossary = self._page_glossary(sources)
         if glossary:
@@ -713,7 +784,7 @@ class Translator:
             "model": s.llm_model,
             "messages": [
                 {"role": "system", "content": self._system_prompt(
-                    sources, speakers=any(blocks[i].get("speaker") for i in ids))},
+                    sources, speakers=any(blocks[i].get("speaker") for i in ids), context=context)},
                 {"role": "user", "content": user_content},
             ],
             "temperature": s.llm_temperature,
@@ -843,7 +914,8 @@ class Pipeline:
                 skipped.append({**n, "cls": "text", "reason": "no_japanese"})
         return kept, skipped, t
 
-    def run(self, img: Image.Image, translate: bool = True) -> dict:
+    def run(self, img: Image.Image, translate: bool = True,
+            context_tags: dict[str, list[str]] | None = None) -> dict:
         t_start = time.perf_counter()
         W, H = img.size
         notes, skipped, timings = self.detect_and_ocr(img)
@@ -851,7 +923,7 @@ class Pipeline:
         translations: list[str | None] = [None] * len(notes)
         if translate and notes:
             t0 = time.perf_counter()
-            translations, llm_meta = self.translator.translate(img, notes)
+            translations, llm_meta = self.translator.translate(img, notes, context_tags)
             timings["llm_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         timings["total_ms"] = round((time.perf_counter() - t_start) * 1000, 1)
 

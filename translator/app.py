@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import ipaddress
+import json
 import logging
 import os
 import socket
@@ -23,7 +24,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
-from pipeline import LlmError, Pipeline, load_image
+from pipeline import LlmError, Pipeline, clean_context_tags, load_image
 
 log = logging.getLogger("mtl")
 settings = config.load()
@@ -105,6 +106,13 @@ def fetch_url(url: str) -> bytes:
         raise HTTPException(400, f"could not fetch image_url: {e}")
 
 
+def _context_tags(raw) -> dict[str, list[str]]:
+    try:
+        return clean_context_tags(raw)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/health")
 def health():
     p = state.get("pipeline")
@@ -117,8 +125,14 @@ def health():
 @app.post("/translate", dependencies=[Depends(require_key)])
 async def translate(request: Request, translate: bool = Query(True, description="false = detection + OCR only")):
     ctype = request.headers.get("content-type", "")
+    # Optional post tags (image context for the LLM): {"character": [...], "series": [...], "artist": [...]}
     if ctype.startswith("multipart/form-data"):
         form = await request.form()
+        raw = form.get("context_tags")
+        try:
+            context_tags = _context_tags(json.loads(raw) if isinstance(raw, str) and raw else None)
+        except ValueError:
+            raise HTTPException(400, "context_tags must be a JSON object")
         upload = form.get("image") or form.get("file")
         if upload is None or not hasattr(upload, "read"):
             raise HTTPException(400, "multipart field 'image' is required")
@@ -131,6 +145,7 @@ async def translate(request: Request, translate: bool = Query(True, description=
         url = payload.get("image_url") if isinstance(payload, dict) else None
         if not url:
             raise HTTPException(400, "JSON body must contain image_url")
+        context_tags = _context_tags(payload.get("context_tags"))  # checked before the (slow) fetch
         data = await run_in_threadpool(fetch_url, url)
     else:
         raise HTTPException(415, "send multipart/form-data (field 'image') or JSON {\"image_url\": ...}")
@@ -150,7 +165,7 @@ async def translate(request: Request, translate: bool = Query(True, description=
     finally:
         state["waiting"] -= 1
     try:
-        return await run_in_threadpool(state["pipeline"].run, img, translate)
+        return await run_in_threadpool(state["pipeline"].run, img, translate, context_tags)
     except LlmError as e:
         raise HTTPException(502, str(e))
     finally:

@@ -38,7 +38,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY --from=llama /src/build/bin/llama-server /app/tools/llama.cpp-cpu/llama-server
-COPY *.py instructions.txt glossary.txt .env.example ./
+COPY *.py instructions.txt glossary.txt characters.txt .env.example ./
 COPY tools/*.py tools/
 
 RUN useradd --system --uid 10001 --home-dir /app app \

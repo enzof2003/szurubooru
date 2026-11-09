@@ -14,6 +14,10 @@ Configuration (environment of the server container):
                           (?translate=false), every note becomes "[MT?]"
     TRANSLATE_TIMEOUT     seconds to wait for one translator response, 900
 
+Image context: the post's character, series (serie/sub-serie/copyright) and
+artist tags are sent as "context_tags"; the translator puts them (plus its
+characters.txt note for each character) into the LLM prompt.
+
 Re-run control: a finished job tags the post machine_translated (plus
 translation_incomplete when some blocks stayed untranslated). Tagged posts
 are refused with 409; removing the tag allows a new run, which replaces all
@@ -58,6 +62,23 @@ COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 # someone removes the tag. TAG_INCOMPLETE marks runs that left [MT?] notes.
 TAG_DONE = "machine_translated"
 TAG_INCOMPLETE = "translation_incomplete"
+# Tag category name -> context_tags role sent to the translator. Other
+# categories (general, type, ...) are not sent.
+CONTEXT_CATEGORIES = {
+    "character": "character",
+    "serie": "series",
+    "series": "series",
+    "sub-serie": "series",
+    "copyright": "series",
+    "artist": "artist",
+}
+# Placeholder tags that say nothing about the image.
+CONTEXT_IGNORED_TAGS = {
+    "original_character",
+    "no_character",
+    "other_or_unknown_artist",
+    "unknown_artist",
+}
 
 _wake = threading.Event()
 _worker_started = False
@@ -282,6 +303,23 @@ def has_tag(post: model.Post, name: str) -> bool:
     )
 
 
+def context_tags(post: model.Post) -> Dict[str, List[str]]:
+    """{"character": [...], "series": [...], "artist": [...]} (primary tag
+    names, sorted; empty roles left out) for the translator's prompt."""
+    ret: Dict[str, List[str]] = {}
+    for tag in post.tags:
+        role = CONTEXT_CATEGORIES.get(
+            (tag.category.name if tag.category else "").lower()
+        )
+        if not role or not tag.names:
+            continue
+        name = tag.names[0].name
+        if name.lower() in CONTEXT_IGNORED_TAGS:
+            continue
+        ret.setdefault(role, []).append(name)
+    return {role: sorted(names) for role, names in ret.items()}
+
+
 def plan_notes(
     existing: List[Tuple[Any, str]], blocks: List[Dict[str, Any]]
 ) -> Tuple[List[Dict[str, Any]], List[int], int]:
@@ -357,11 +395,16 @@ def _http_error_detail(ex: urllib.error.HTTPError) -> str:
     return body[:300] or (ex.reason or "")
 
 
-def call_translator(image_url: str) -> Dict[str, Any]:
+def call_translator(
+    image_url: str, context: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, Any]:
     url = _translator_url() + "/translate"
     if not _use_llm():
         url += "?translate=false"
-    data = json.dumps({"image_url": image_url}).encode("utf-8")
+    body: Dict[str, Any] = {"image_url": image_url}
+    if context:
+        body["context_tags"] = context
+    data = json.dumps(body).encode("utf-8")
     for _ in range(QUEUE_FULL_RETRIES):
         request = urllib.request.Request(
             url,
@@ -557,11 +600,12 @@ def _process_job(job_id: int) -> None:
     image_url = _image_base().rstrip("/") + "/" + posts.get_post_content_path(
         post
     )
+    context = context_tags(post)
     # Don't sit in an open transaction during the long translator call.
     db.session.commit()
-    logger.info("Translation job %d: post %d -> %s", job_id, post_id,
-                _translator_url())
-    result = call_translator(image_url)
+    logger.info("Translation job %d: post %d -> %s, context %s", job_id,
+                post_id, _translator_url(), context)
+    result = call_translator(image_url, context)
     _store_result(job_id, result)
     _merge_result(job_id, post_id, result["blocks"])
 

@@ -1,0 +1,124 @@
+# One entry per line:  booru_character_tag = note for the LLM
+# The server sends the post's character tags; the note of each tag present is added to the
+# prompt (nothing is sent for tags that aren't listed). Keep notes to one line: the name, and a
+# trait only when it explains jokes or lines that are literal for that character.
+# Japanese name renderings belong in glossary.txt, not here.
+
+# ===== Protagonists =====
+reimu_hakurei = Reimu Hakurei (Touhou): shrine maiden of the Hakurei Shrine; always broke, obsessed with donations (賽銭) and money
+marisa_kirisame = Marisa Kirisame (Touhou): human witch, tomboyish speech (〜だぜ); "borrows" (steals) things "until she dies"; loves mushrooms
+sanae_kochiya = Sanae Kochiya (Touhou): shrine maiden of Moriya, from the outside world; "common sense doesn't apply in Gensokyo"
+
+# ===== Scarlet Devil Mansion =====
+remilia_scarlet = Remilia Scarlet (Touhou): vampire, mistress of the Scarlet Devil Mansion; manipulates fate; acts dignified ("charisma") but is childish
+flandre_scarlet = Flandre Scarlet (Touhou): vampire, Remilia's little sister; can destroy anything by crushing its "eye" in her hand; kept in the basement for 495 years
+sakuya_izayoi = Sakuya Izayoi (Touhou): human maid of the mansion; can stop time; throws knives; flat-chest/padding (PAD) jokes
+patchouli_knowledge = Patchouli Knowledge (Touhou): magician librarian who never leaves the library; asthmatic, sickly ("mukyu")
+hong_meiling = Hong Meiling (Touhou): Chinese gatekeeper who naps on duty; people forget her name and call her "China" (中国)
+koakuma = Koakuma (Touhou): "little devil", Patchouli's librarian assistant; succubus-like
+cirno = Cirno (Touhou): ice fairy; dumb (⑨, "baka") but calls herself the strongest (最強); freezes things
+rumia = Rumia (Touhou): youkai of darkness who eats humans; "is that so~" (そーなのかー)
+
+# ===== Netherworld / Yakumo =====
+yuyuko_saigyouji = Yuyuko Saigyouji (Touhou): ghost princess of Hakugyokurou; bottomless glutton; can lure the living to death
+youmu_konpaku = Youmu Konpaku (Touhou): half-human half-phantom gardener and swordswoman; her ghost half (半霊) floats beside her
+yukari_yakumo = Yukari Yakumo (Touhou): gap youkai who opens portals/gaps (スキマ) anywhere; manipulates boundaries; jokes about her age (BBA, "17 years old")
+ran_yakumo = Ran Yakumo (Touhou): nine-tailed fox, Yukari's shikigami; fluffy tails; dotes on Chen
+chen = Chen (Touhou): nekomata (cat with two tails), Ran's shikigami; catlike; hates water
+alice_margatroid = Alice Margatroid (Touhou): puppeteer magician who controls dolls (Shanghai, Hourai) with threads
+
+# ===== Oni / Heaven =====
+suika_ibuki = Suika Ibuki (Touhou): small horned oni, always drunk from her bottomless sake gourd; can split into many tiny Suikas or turn into mist
+yuugi_hoshiguma = Yuugi Hoshiguma (Touhou): tall oni, extremely strong; drinks from a sake dish without spilling a drop; one red horn
+kasen_ibaraki = Kasen Ibaraki (Touhou): hermit who lectures people, secretly an oni; her bandaged right arm is missing
+tenshi_hinanawi = Tenshi Hinanawi (Touhou): spoiled celestial who causes earthquakes; a masochist who loves being punished (ドM)
+iku_nagae = Iku Nagae (Touhou): oarfish envoy; "reads the atmosphere" (空気を読む); lightning
+
+# ===== Eientei / Bamboo Forest =====
+reisen_udongein_inaba = Reisen Udongein Inaba (Touhou): moon rabbit (bunny ears); her red eyes drive people mad; Eirin's assistant and test subject
+tewi_inaba = Tewi Inaba (Touhou): earth rabbit, trickster and liar; brings good luck
+eirin_yagokoro = Eirin Yagokoro (Touhou): immortal genius pharmacist; makes any drug (薬), including dubious ones
+kaguya_houraisan = Kaguya Houraisan (Touhou): immortal moon princess; lazy shut-in NEET; eternal feud with Mokou
+fujiwara_no_mokou = Fujiwara no Mokou (Touhou): immortal human who can't die and revives after anything; fire/phoenix powers; kills and is killed by Kaguya
+keine_kamishirasawa = Keine Kamishirasawa (Touhou): village teacher, were-hakutaku who grows horns on full moons; punishes with headbutts (頭突き); can "eat" history
+mystia_lorelei = Mystia Lorelei (Touhou): night sparrow youkai; her singing makes people night-blind (鳥目); runs a grilled-lamprey stall
+wriggle_nightbug = Wriggle Nightbug (Touhou): firefly youkai who commands insects; often mistaken for a boy
+
+# ===== Afterlife / Flowers =====
+aya_shameimaru = Aya Shameimaru (Touhou): crow tengu reporter, the fastest in Gensokyo; sensationalist newspaper, always snapping photos
+hatate_himekaidou = Hatate Himekaidou (Touhou): crow tengu reporter; shut-in who "takes" photos by psychic photography through her phone
+momiji_inubashiri = Momiji Inubashiri (Touhou): white wolf tengu guard; dog/wolf traits (ears, tail, loyal)
+komachi_onozuka = Komachi Onozuka (Touhou): shinigami ferrywoman of the Sanzu River; slacks off; scythe; busty
+eiki_shiki_yamaxanadu = Eiki Shiki (Touhou): Yama, judge of the dead; endless sermons and lectures; judges black or white
+yuuka_kazami = Yuuka Kazami (Touhou): flower youkai; strong and sadistic (ドS); sunflowers
+medicine_melancholy = Medicine Melancholy (Touhou): living poison doll; hates humans who abandon dolls
+
+# ===== Youkai Mountain / Moriya =====
+nitori_kawashiro = Nitori Kawashiro (Touhou): kappa engineer; loves cucumbers (きゅうり); shy, but a money-grubbing tinkerer
+suwako_moriya = Suwako Moriya (Touhou): frog goddess (ケロ); hat with eyes; old native god in a child's body
+kanako_yasaka = Kanako Yasaka (Touhou): goddess of wind and mountains; giant onbashira pillars
+hina_kagiyama = Hina Kagiyama (Touhou): curse goddess who spins and gathers people's misfortune
+
+# ===== Underground =====
+satori_komeiji = Satori Komeiji (Touhou): satori youkai; her third eye reads minds, so she answers and reacts to unspoken thoughts
+koishi_komeiji = Koishi Komeiji (Touhou): Satori's sister; closed her third eye, so she can't read minds; acts on the unconscious (無意識) and nobody notices she's there
+rin_kaenbyou_(orin) = Rin Kaenbyou "Orin" (Touhou): kasha cat who collects corpses (死体) in her cart; cat traits
+utsuho_reiuji_(okuu) = Utsuho Reiuji "Okuu" (Touhou): hell raven with nuclear fusion power (核融合); birdbrained (鳥頭), forgetful
+parsee_mizuhashi = Parsee Mizuhashi (Touhou): bridge princess, youkai of jealousy; constantly says "how envious/jealous" (妬ましい)
+yamame_kurodani = Yamame Kurodani (Touhou): earth spider youkai; spreads disease; webs
+
+# ===== Myouren Temple =====
+nazrin = Nazrin (Touhou): mouse youkai who dowses for treasure with rods; Shou's sarcastic subordinate
+kogasa_tatara = Kogasa Tatara (Touhou): karakasa obake: she is a forgotten umbrella (the purple umbrella with an eye and tongue is her); feeds on surprising people (驚け, うらめしや) and fails at it
+ichirin_kumoi = Ichirin Kumoi (Touhou): nun who fights with the cloud youkai Unzan (giant fists)
+minamitsu_murasa = Minamitsu Murasa (Touhou): ship ghost captain who sinks ships with her ladle (柄杓)
+shou_toramaru = Shou Toramaru (Touhou): tiger youkai, avatar of Bishamonten; keeps losing her pagoda
+byakuren_hijiri = Byakuren Hijiri (Touhou): Buddhist magician nun; magically rejuvenated, boosts her body; "Namusan!"
+nue_houjuu = Nue Houjuu (Touhou): nue, an unidentifiable (正体不明) youkai; her seeds make things look like something else; trickster
+mamizou_futatsuiwa = Mamizou Futatsuiwa (Touhou): bake-danuki (tanuki) boss; shapeshifts and transforms others with a leaf
+kyouko_kasodani = Kyouko Kasodani (Touhou): yamabiko (echo youkai) who repeats what she hears; loud greetings; punk singer
+
+# ===== Divine Spirit Mausoleum =====
+yoshika_miyako = Yoshika Miyako (Touhou): jiangshi (Chinese hopping zombie) with a talisman on her forehead; stiff outstretched arms, can't bend; rotten brain, forgetful; eats anything
+seiga_kaku = Seiga Kaku (Touhou): wicked hermit who passes through walls with her hairpin; Yoshika's master
+soga_no_tojiko = Soga no Tojiko (Touhou): vengeful ghost with no legs (a ghost tail); lightning
+mononobe_no_futo = Mononobe no Futo (Touhou): shikaisen with old-fashioned speech (〜じゃ, 我); sets things on fire, throws plates
+toyosatomimi_no_miko = Toyosatomimi no Miko (Touhou): saint (Prince Shoutoku); hears ten people's desires at once; earmuffs
+hata_no_kokoro = Hata no Kokoro (Touhou): menreiki; expressionless face, shows emotions only through her masks
+
+# ===== Double Dealing Character =====
+sekibanki = Sekibanki (Touhou): rokurokubi/dullahan-like youkai; her head detaches and she can split into several flying heads, so 頭 may be literal
+kagerou_imaizumi = Kagerou Imaizumi (Touhou): werewolf; gets hairier on full moons, embarrassed about it
+wakasagihime = Wakasagihime (Touhou): mermaid with a fish tail; lives in Misty Lake
+seija_kijin = Seija Kijin (Touhou): amanojaku who flips everything upside down and says the opposite of what she means
+shinmyoumaru_sukuna = Shinmyoumaru Sukuna (Touhou): inchling (tiny); her Miracle Mallet makes things bigger or smaller
+raiko_horikawa = Raiko Horikawa (Touhou): drum tsukumogami
+
+# ===== Moon / Hell =====
+doremy_sweet = Doremy Sweet (Touhou): baku who eats dreams and rules the dream world
+sagume_kishin = Sagume Kishin (Touhou): goddess whose spoken words reverse events, so she barely speaks
+clownpiece = Clownpiece (Touhou): hell fairy with a madness torch; "it's lunatic time!"; American flag clothes
+junko = Junko (Touhou): pure fury of grudges
+hecatia_lapislazuli = Hecatia Lapislazuli (Touhou): goddess of hell with three bodies (Earth, Moon, Otherworld); "Welcome Hell" T-shirt
+
+# ===== Later games =====
+okina_matara = Okina Matara (Touhou): secret god of backdoors (後戸) who gives power through people's backs; back door/behind jokes
+joon_yorigami = Joon Yorigami (Touhou): pestilence goddess who drains others' money on luxury
+shion_yorigami = Shion Yorigami (Touhou): poverty goddess (貧乏神); always broke and miserable; brings bad luck
+saki_kurokoma = Saki Kurokoma (Touhou): pegasus/horse spirit, wild and fast; horse traits
+yachie_kicchou = Yachie Kicchou (Touhou): turtle-dragon boss who controls others by pressure
+urumi_ushizaki = Urumi Ushizaki (Touhou): ushi-oni (cow ox-demon); carries a stone baby that gets heavier; cow traits
+tsukasa_kudamaki = Tsukasa Kudamaki (Touhou): kudagitsune (pipe fox) who manipulates people with sweet talk
+yuuma_toutetsu = Yuuma Toutetsu (Touhou): taotie who devours anything, even abilities; endless appetite
+chiyari_tenkajin = Chiyari Tenkajin (Touhou): blood-drinking oni of the Blood Pool Hell
+miyoi_okunoda = Miyoi Okunoda (Touhou): zashiki-warashi waitress at Geidontei; makes drunk customers forget the night
+
+# ===== Others =====
+sunny_milk = Sunny Milk (Touhou): fairy who bends light to turn invisible
+luna_child = Luna Child (Touhou): fairy who erases sound
+star_sapphire = Star Sapphire (Touhou): fairy who senses living things nearby
+lily_white = Lily White (Touhou): spring fairy who announces "It's spring!"
+kosuzu_motoori = Kosuzu Motoori (Touhou): bookseller girl who can read any writing, including cursed youkai books
+hieda_no_akyuu = Hieda no Akyuu (Touhou): reincarnated chronicler with perfect memory; frail
+sumireko_usami = Sumireko Usami (Touhou): psychic high-schooler from the outside world, occult nerd
+aunn_komano = Aunn Komano (Touhou): komainu (guardian lion-dog) of the shrine; doglike

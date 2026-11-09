@@ -105,6 +105,7 @@ class Settings:
     target_language: str = field(default_factory=lambda: os.getenv("TARGET_LANGUAGE", "English"))
     instructions_file: Path = field(default_factory=lambda: _path("INSTRUCTIONS_FILE", "instructions.txt"))
     glossary_file: Path = field(default_factory=lambda: _path("GLOSSARY_FILE", "glossary.txt"))
+    characters_file: Path = field(default_factory=lambda: _path("CHARACTERS_FILE", "characters.txt"))
 
 
 def load() -> Settings:
