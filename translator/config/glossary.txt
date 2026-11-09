@@ -363,3 +363,4 @@
 クる = coming [climax/orgasm; katakana 来る, never "poking"]
 何かクる = something's coming [about to climax]
 お股 = crotch [keep neutral, don't make it more explicit]
+あたい = I [Cirno's first-person pronoun, cute/childish "me"; never a name, あたいちゃんと = "I … properly"]
