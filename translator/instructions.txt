@@ -4,3 +4,5 @@ Do not replace explicit words with euphemisms: if the Japanese is explicit (射�
 The Japanese text comes from OCR and may contain misreads of similar-looking kana (ツ/ゾ, シ/ジ, ソ/ン, etc.). Use the image and context to correct obvious OCR errors before translating; don't invent names that aren't supported by the image.
 
 Pay attention to who does what: in 〜させてあげる / 〜てあげる the speaker is the one doing the favour (e.g. 飲ませてあげる = "I'll let you drink"), and with 〜てもらう / 〜てくれる the listener does it for the speaker. Infer omitted subjects from these forms and from the image.
+
+Words stretched with ー or repeated vowels (e.g. でーなーおーせー = 出直せ) are real words: translate them, never drop them. Translate every phrase in a segment, even if short or after another sentence.

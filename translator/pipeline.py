@@ -536,12 +536,16 @@ def build_notes(dets: list[dict], skip: tuple[str, ...], W: int, H: int,
 
 def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
     """Replace each note whose text block mixes clearly different text colours by one note per
-    colour run (reading order kept). Split notes get `color` (#rrggbb, measured), `speaker`
-    (page-wide letter: same colour = same letter), `crop` (OCR region) and `split_from`."""
+    colour run (reading order kept). Split notes get `color` (#rrggbb, display-boosted; none for
+    a neutral group), `speaker` (page-wide letter: same colour = same letter), `crop` (OCR region)
+    and `split_from`. An unsplit block with one clear lettering colour gets `color` and `speaker`."""
     out = []
     for i, n in enumerate(notes):
-        groups = colorsplit.split_by_colour(img, n["text_box"])
+        groups, dominant = colorsplit.analyse_block(img, n["text_box"])
         if not groups:
+            if dominant:  # one clear lettering colour: the note still gets it (and a speaker letter)
+                n = {**n, "rgb": dominant, "color": colorsplit.hex_for(dominant),
+                     "measured_color": "#%02x%02x%02x" % dominant}
             out.append(n)
             continue
         for g in groups:
@@ -549,7 +553,7 @@ def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
                         "parts": [[float(v) for v in b] for b in g.lines], "crop": g.crop,
                         "vertical": g.vertical, "rgb": g.rgb, "split_from": i,
                         **({"color": g.hex, "measured_color": g.measured_hex} if g.rgb else {})})
-    split = [n for n in out if "split_from" in n]
+    split = [n for n in out if "split_from" in n or "color" in n]
     for n, letter in zip(split, colorsplit.speaker_labels([n["rgb"] for n in split])):
         n["speaker"] = letter
     return out
@@ -605,11 +609,11 @@ class Translator:
         ]
         if speakers:
             parts.append(
-                "Some segments have a \"speaker\" letter: on this page several characters share one text "
-                "block and are told apart only by the colour of their lettering. Each such segment is one "
-                "character's line; the same letter is the same character everywhere on the page, a "
-                "different letter is a different character answering. Translate each segment as that "
-                "character's own words (keep who says what), and do not put the letter in the translation."
+                "Some segments have a \"speaker\" letter: on this page characters are told apart by the "
+                "colour of their lettering (sometimes several share one text block). The same letter is "
+                "the same character everywhere on the page, a different letter is a different character "
+                "answering. Translate each segment as that character's own words (keep who says what), "
+                "and do not put the letter in the translation."
             )
         if instructions:
             parts.append(

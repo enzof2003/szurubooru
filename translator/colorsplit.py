@@ -48,6 +48,7 @@ VERTICAL_PURITY = 0.75  # columns are kept (Japanese default) unless their colou
 NEUTRAL_MIN_LEN = 2.0   # an untinted line this many line widths long is text of its own (neutral
                         # group); shorter ones (」, ♥, …) attach to the previous group
 NEUTRAL = -1
+DOMINANT_MIN = 0.6    # unsplit block: share of its text-line length that must be tinted for a colour
 EDGE_MARGIN = 0.3     # OCR crop margin past the block's outer edge, in line widths
 MAX_LINE_GAP = 1.5    # blank stretch (in line widths) that ends a line's text
 DISPLAY_S_MIN = 0.6   # returned colour: HSL saturation floor ...
@@ -73,6 +74,11 @@ class Group:
     @property
     def measured_hex(self) -> str | None:
         return "#%02x%02x%02x" % self.rgb if self.rgb else None
+
+
+def hex_for(rgb: tuple[int, int, int]) -> str:
+    """Display hex (#rrggbb) of a measured colour."""
+    return "#%02x%02x%02x" % display_rgb(rgb)
 
 
 def display_rgb(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
@@ -253,6 +259,20 @@ def _cluster(labs: list[np.ndarray], weights: list[int]) -> list[np.ndarray]:
 def split_by_colour(img: Image.Image, box: list[float]) -> list[Group] | None:
     """Colour groups of the text block `box` (page px), in reading order.
     None = no split (one colour, uncoloured text, or colours not clearly distinct)."""
+    return analyse_block(img, box)[0]
+
+
+def analyse_block(img: Image.Image, box: list[float]) -> tuple[list[Group] | None, tuple[int, int, int] | None]:
+    """(colour groups or None, dominant colour of an unsplit block or None).
+
+    The dominant colour is set only when the block is not split and its lettering is clearly one
+    colour: a single colour cluster, and tinted lines make up >= DOMINANT_MIN of the length of all
+    its text lines (tinted + untinted). Plain black/white text has none."""
+    info: dict = {}
+    return _split(img, box, info), info.get("dominant")
+
+
+def _split(img: Image.Image, box: list[float], info: dict) -> list[Group] | None:
     x1, y1 = int(max(0, box[0])), int(max(0, box[1]))
     x2, y2 = int(min(img.width, box[2])), int(min(img.height, box[3]))
     if x2 - x1 < 8 or y2 - y1 < 8:
@@ -275,9 +295,9 @@ def split_by_colour(img: Image.Image, box: list[float]) -> list[Group] | None:
     # column has a highlighted phrase, and cutting vertical text into rows splits sentences.
     pv, lines_v = analysed[True]
     ph, lines_h = analysed[False]
-    vertical = len(lines_v) >= 2 and (pv >= VERTICAL_PURITY or pv >= ph or len(lines_h) < 2)
+    vertical = bool(lines_v) and (pv >= VERTICAL_PURITY or pv >= ph or len(lines_h) < 2)
     lines = lines_v if vertical else lines_h
-    if len(lines) < 2:
+    if not lines:
         return None
     width = float(np.median([l.e - l.s for l in lines]))
 
@@ -293,13 +313,18 @@ def split_by_colour(img: Image.Image, box: list[float]) -> list[Group] | None:
     if not col:
         return None
     centres = _cluster([l.lab for l in col], [l.n for l in col])
-    if len(centres) < 2:
-        return None
-    for l in lines:
+    for l in lines:  # mixed lines take the first speaker colour along them
         for cl, crgb in l.chunks or ():
             if min(np.linalg.norm(c - cl) for c in centres) < MIN_DELTA_E:
                 l.lab, l.rgb = cl, crgb
                 break
+    col = [l for l in lines if l.lab is not None]
+    if len(centres) < 2 or len(lines) < 2:
+        text_len = sum(length(l) for l in lines if length(l) >= NEUTRAL_MIN_LEN * width)
+        if len(centres) == 1 and sum(length(l) for l in col) >= DOMINANT_MIN * max(text_len, 1):
+            tot = sum(l.n for l in col)
+            info["dominant"] = tuple(int(sum(l.rgb[k] * l.n for l in col) / tot) for k in range(3))
+        return None
 
     # reading order: vertical columns right -> left, horizontal rows top -> bottom
     lines.sort(key=lambda l: -l.s if vertical else l.s)
