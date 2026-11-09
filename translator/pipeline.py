@@ -106,6 +106,15 @@ def clean_text(text: str) -> str:
     return strip_decorations(LOOP_RE.sub(lambda m: m.group(1) * 3, text or ""))
 
 
+LOOP_TRIMMED = 16  # chars clean_text removed from an OCR read: it looped (see looped())
+
+
+def looped(raw: str, usage: dict) -> bool:
+    """An OCR read ran into a repetition loop: it hit max_tokens, or the loop stopped by itself
+    but clean_text had to trim a long run (25687: 「あぁぁぁ♦♦♦… ended at 195 tokens)."""
+    return bool(usage.get("truncated")) or len(raw or "") - len(clean_text(raw)) >= LOOP_TRIMMED
+
+
 def _area(b) -> float:
     return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
 
@@ -974,6 +983,7 @@ class Pipeline:
                 if self.ocr.last_scale:
                     n["upscale" if self.ocr.last_scale > 1 else "downscale"] = self.ocr.last_scale
                 per_note.append(round((time.perf_counter() - t1) * 1000, 1))
+            notes = self._merge_looping_groups(img, notes)
             t["ocr_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             t["ocr_ms_per_note"] = per_note
 
@@ -984,6 +994,37 @@ class Pipeline:
             else:
                 skipped.append({**n, "cls": "text", "reason": "no_japanese"})
         return kept, skipped, t
+
+    def _merge_looping_groups(self, img: Image.Image, notes: list[dict]) -> list[dict]:
+        """A colour group whose OCR still loops after the retry is merged with its neighbouring
+        group of the same block (the next one in reading order, else the previous) and the pair is
+        read again as one note: complete text beats a speaker split with a truncated turn. The
+        merged note keeps the colour of the group with more lines (ties: the looping one)."""
+        out = list(notes)
+        i = 0
+        while i < len(out):
+            n = out[i]
+            if "split_from" not in n or not n.get("ocr_looped"):
+                i += 1
+                continue
+            j = next((k for k in (i + 1, i - 1) if 0 <= k < len(out)
+                      and out[k].get("split_from") == n["split_from"]), None)
+            if j is None:
+                i += 1
+                continue
+            a, b = sorted((i, j))
+            first, second = out[a], out[b]
+            keep = n if len(n["parts"]) >= len(out[j]["parts"]) else out[j]
+            union = lambda k: [min(first[k][0], second[k][0]), min(first[k][1], second[k][1]),
+                               max(first[k][2], second[k][2]), max(first[k][3], second[k][3])]
+            merged = {**keep, "box": union("box"), "text_box": union("text_box"), "crop": union("crop"),
+                      "parts": first["parts"] + second["parts"], "merged_on_loop": True}
+            for k in ("source", "ocr_usage", "ocr_chunks", "ocr_retry", "ocr_looped"):
+                merged.pop(k, None)
+            self._ocr_note(img, merged)
+            out[a:b + 1] = [merged]
+            i = a + 1
+        return out
 
     def _ocr_note(self, img: Image.Image, n: dict) -> None:
         """Sets n["source"], n["ocr_usage"] and, for a block read in column chunks, n["ocr_chunks"]."""
@@ -1004,6 +1045,17 @@ class Pipeline:
         if not cols:
             crop = img.crop((round(max(0, x1 - dx)), top, round(min(img.width, x2 + dx)), bottom))
             text, n["ocr_usage"] = self.ocr(crop)
+            if n.get("crop") and looped(text, n["ocr_usage"]):
+                # A colour group read on its own can loop: a lone 45x1000 px column on 25687
+                # (「あぁぁぁ♦♦♦… up to max_tokens). Half size read it right; resizing is chaotic in
+                # general, so only after a failed read, and kept only if it doesn't loop too.
+                half = crop.resize((max(1, crop.width // 2), max(1, crop.height // 2)), Image.LANCZOS)
+                retry, usage = self.ocr(half)
+                n["ocr_retry"] = "0.5x"
+                if not looped(retry, usage):
+                    text, n["ocr_usage"] = retry, usage
+                else:
+                    n["ocr_looped"] = True  # merged with a neighbouring group (_merge_looping_groups)
             n["source"] = clean_text(text)
             return
         # Columns right -> left, k per call; the outer chunks keep the block's margin.
@@ -1069,6 +1121,7 @@ class Pipeline:
                            **{k: n[k] for k in ("upscale", "downscale") if k in n},
                            # [columns found, OCR calls] for a block read in column chunks
                            **({"ocr_chunks": n["ocr_chunks"]} if "ocr_chunks" in n else {}),
+                           **{k: n[k] for k in ("ocr_retry", "ocr_looped", "merged_on_loop") if k in n},
                            **({"ocr_truncated": True} if n["ocr_usage"].get("truncated") else {}),
                            **({k: n[k] for k in ("color", "measured_color", "speaker", "split_from") if k in n})}
                           for n in notes],

@@ -202,6 +202,96 @@ class ChunkedOcrTest(unittest.TestCase):
         self.assertNotIn("ocr_chunks", note)
 
 
+class LoopOcr:
+    """Loops (hits max_tokens) on crops narrower than `loop_below` px, except at half size when
+    `half_ok`; answers with the crop's page x range otherwise."""
+
+    def __init__(self, loop_below, half_ok):
+        self.loop_below, self.half_ok, self.calls = loop_below, half_ok, []
+
+    def __call__(self, crop, glyph=None):
+        lo, hi = crop.info["x"]  # kept by resize(): a half-size crop is narrower than its range
+        half = crop.width < 0.75 * (hi - lo)
+        self.calls.append("half" if half else crop.info["x"])
+        if (half and self.half_ok) or (not half and crop.width >= self.loop_below):
+            return "あ" + ("" if half else str(crop.info["x"])), {"completion_tokens": 5}
+        return "ぁ" * 50, {"completion_tokens": 512, "truncated": True}
+
+
+@needs_fixtures
+class LoopFallbackTest(unittest.TestCase):
+    """A colour group read on its own loops: retry at half size, else merge with a neighbour."""
+
+    def notes(self):
+        img = block(25687)
+        notes = pipeline.split_notes_by_colour(img, [{"text_box": [0, 0, img.width, img.height],
+                                                      "box": [0, 0, img.width, img.height]}])
+        orig_crop = img.crop
+
+        def crop(box):
+            c = orig_crop(box)
+            c.info["x"] = (box[0], box[2])
+            return c
+
+        img.crop = crop
+        pl = object.__new__(pipeline.Pipeline)
+        pl.s = SimpleNamespace(ocr_pad=0.01, ocr_columns_per_call=3, ocr_column_split_min=5)
+        return img, notes, pl
+
+    def run_all(self, pl, img, notes):
+        for n in notes:
+            pl._ocr_note(img, n)
+        return pl._merge_looping_groups(img, notes)
+
+    def test_retry_half_size(self):
+        img, notes, pl = self.notes()
+        pl.ocr = LoopOcr(loop_below=60, half_ok=True)  # single columns (~45-50 px) loop
+        out = self.run_all(pl, img, notes)
+        self.assertEqual(len(out), 4)
+        singles = [n for n in out if len(n["parts"]) == 1]
+        self.assertTrue(singles and all(n["ocr_retry"] == "0.5x" and n["source"] == "あ" for n in singles))
+        self.assertTrue(all(not n["ocr_usage"].get("truncated") for n in out))
+
+    def test_loop_that_stops_by_itself(self):
+        # 25687: 「あぁぁぁぁぁぁぁぁぁ♡♦♦♦… then EOS at 195 tokens, under max_tokens
+        raw = "「あぁぁぁぁぁぁぁぁぁ♡" + "♦" * 55
+        self.assertTrue(pipeline.looped(raw, {"completion_tokens": 195}))
+        self.assertTrue(pipeline.looped("「あ", {"completion_tokens": 512, "truncated": True}))
+        for ok in ("「うそ…妖夢にあんな大きいのが…っ」", "イくっ♡♡♡♡♡♡", "あああああああああっ♡♡♡♡"):
+            self.assertFalse(pipeline.looped(ok, {"completion_tokens": 20}), ok)
+
+    def test_merge_when_retry_loops(self):
+        img, notes, pl = self.notes()
+        pl.ocr = LoopOcr(loop_below=60, half_ok=False)
+        out = self.run_all(pl, img, notes)
+        # purple(1) + green(2) and purple(1) + green(2): each lone column merged with the next group
+        self.assertEqual(len(out), 2)
+        self.assertTrue(all(n["merged_on_loop"] for n in out))
+        self.assertEqual([len(n["parts"]) for n in out], [3, 3])
+        self.assertFalse(any(n.get("ocr_looped") for n in out))
+        xs = [n["text_box"][0] for n in out]
+        self.assertEqual(xs, sorted(xs, reverse=True))  # reading order kept
+        self.assertEqual([is_purple(n["color"]) for n in out], [False, False])  # more lines: green
+
+    def test_unsplit_note_never_retried(self):
+        img = block(14213)
+        pl = object.__new__(pipeline.Pipeline)
+        pl.s = SimpleNamespace(ocr_pad=0.01, ocr_columns_per_call=0, ocr_column_split_min=5)
+        pl.ocr = LoopOcr(loop_below=10 ** 6, half_ok=True)
+        note = {"text_box": [0, 0, img.width, img.height]}
+        orig_crop = img.crop
+
+        def crop(box):
+            c = orig_crop(box)
+            c.info["x"] = (box[0], box[2])
+            return c
+
+        img.crop = crop
+        pl._ocr_note(img, note)
+        self.assertEqual(len(pl.ocr.calls), 1)
+        self.assertNotIn("ocr_retry", note)
+
+
 class CleanTextTest(unittest.TestCase):
     def test_loop_from_14207(self):
         raw = "胸が熱い……！♡だよー♡！" + "♦♩" * 60
