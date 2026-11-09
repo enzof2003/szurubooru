@@ -31,6 +31,19 @@ def _path(name: str, default: str) -> Path:
     return p if p.is_absolute() else ROOT / p
 
 
+def _conf_path(name: str, default: str) -> Path:
+    """Prompt files (glossary, instructions, characters). A relative name is looked up in config/
+    (bind-mounted read-only in docker-compose, so edits apply on the next request; without the mount
+    it is the image's copy), then next to this file for older layouts."""
+    p = Path(os.getenv(name) or default)
+    if p.is_absolute():
+        return p
+    for cand in (ROOT / "config" / p, ROOT / p):
+        if cand.exists():
+            return cand
+    return ROOT / "config" / p
+
+
 def _list(name: str, default: str) -> tuple[str, ...]:
     return tuple(x.strip().lower() for x in os.getenv(name, default).split(",") if x.strip())
 
@@ -103,9 +116,9 @@ class Settings:
     llm_extra_body: dict = field(default_factory=lambda: json.loads(os.getenv("LLM_EXTRA_BODY", "") or "{}"))
     vision_max_side: int = field(default_factory=lambda: int(os.getenv("VISION_MAX_SIDE", "1536")))
     target_language: str = field(default_factory=lambda: os.getenv("TARGET_LANGUAGE", "English"))
-    instructions_file: Path = field(default_factory=lambda: _path("INSTRUCTIONS_FILE", "instructions.txt"))
-    glossary_file: Path = field(default_factory=lambda: _path("GLOSSARY_FILE", "glossary.txt"))
-    characters_file: Path = field(default_factory=lambda: _path("CHARACTERS_FILE", "characters.txt"))
+    instructions_file: Path = field(default_factory=lambda: _conf_path("INSTRUCTIONS_FILE", "instructions.txt"))
+    glossary_file: Path = field(default_factory=lambda: _conf_path("GLOSSARY_FILE", "glossary.txt"))
+    characters_file: Path = field(default_factory=lambda: _conf_path("CHARACTERS_FILE", "characters.txt"))
 
 
 def load() -> Settings:

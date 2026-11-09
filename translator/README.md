@@ -26,7 +26,7 @@ llm     one OpenAI-compatible chat call per page (OpenRouter on the VPS; local G
 | `bench.py` | in-process detection + OCR timing and peak RAM (service + OCR server) |
 | `start_llm.ps1` | local Gemma 4 26B A4B llama-server (test stand-in for OpenRouter) |
 | `tools/export_rfdetr_onnx.py` | rebuilds `models/rfdetr/*.onnx` from `model.safetensors` (dev extras only) |
-| `instructions.txt`, `glossary.txt` | injected into the system prompt (`JP = EN` per glossary line) |
+| `config/instructions.txt`, `config/glossary.txt`, `config/characters.txt` | injected into the system prompt (`JP = EN` per glossary line) |
 | `.env` / `.env.example` | settings |
 
 Models (copy these to the VPS, ~1.97 GB):

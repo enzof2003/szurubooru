@@ -84,6 +84,9 @@ services:
     env_file: ./translator/.env
     volumes:
       - "./translator/models:/app/models:ro"
+      ## glossary/instructions/characters, read per request: edits apply on the next
+      ## request, no rebuild. A directory mount, so replace-style edits (sed -i, git) work too.
+      - "./translator/config:/app/config:ro"
     networks: [translate]
     stop_grace_period: 30s
 
