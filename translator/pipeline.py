@@ -366,12 +366,44 @@ def _coverage(parent, parts) -> float:
     return float(grid.mean())
 
 
-def resolve_text_hierarchy(texts: list[dict], threshold: float, floor: float = 0.1) -> list[dict]:
+LOST_INK_MAX = 0.15  # a split may leave at most this share of the parent's ink uncovered
+
+
+def ink_map(img: Image.Image) -> np.ndarray:
+    """Strong-edge pixels (grey step > 60 to the right/below neighbour): a cheap proxy for lettering."""
+    g = np.asarray(img.convert("L")).astype(np.int16)
+    e = np.zeros(g.shape, bool)
+    e[:, 1:] |= np.abs(np.diff(g, axis=1)) > 60
+    e[1:, :] |= np.abs(np.diff(g, axis=0)) > 60
+    return e
+
+
+def _lost_ink(ink: np.ndarray, parent, kept) -> float:
+    """Share of the ink inside `parent` that none of the `kept` boxes covers."""
+    x1, y1 = max(0, int(parent[0])), max(0, int(parent[1]))
+    x2, y2 = min(ink.shape[1], int(np.ceil(parent[2]))), min(ink.shape[0], int(np.ceil(parent[3])))
+    sub = ink[y1:y2, x1:x2]
+    total = int(sub.sum())
+    if not total:
+        return 0.0
+    cov = np.zeros(sub.shape, bool)
+    for b in kept:
+        cov[max(0, int(b[1]) - y1):max(0, int(np.ceil(b[3])) - y1),
+            max(0, int(b[0]) - x1):max(0, int(np.ceil(b[2])) - x1)] = True
+    return float((sub & ~cov).sum()) / total
+
+
+def resolve_text_hierarchy(texts: list[dict], threshold: float, floor: float = 0.1,
+                           ink: np.ndarray | None = None, accounted: list | None = None) -> list[dict]:
     """RF-DETR often proposes a whole text block *and* its columns/sub-blocks.
 
     Keep whichever level the model is more confident about: a node is split into its children only
     if a child scores higher than the node and the children cover >= 50% of it (children may be
     below the threshold, down to `floor`). Chosen boxes that overlap are then merged.
+
+    With `ink` (see ink_map), a split must also not leave more than LOST_INK_MAX of the node's ink
+    outside the children and the `accounted` boxes (e.g. onomatopoeia): on 25698 the children of a
+    3-column block covered 66% of its area but missed the top of one column (30% of its ink).
     """
     cand = [t for t in texts if t["score"] >= floor]
 
@@ -398,7 +430,9 @@ def resolve_text_hierarchy(texts: list[dict], threshold: float, floor: float = 0
         kids = children.get(id(node), [])
         if kids and max(k["score"] for k in kids) > node["score"]:
             chosen = [x for k in kids for x in choose(k)]
-            if _coverage(node["box"], [x["box"] for x in chosen]) >= 0.5:
+            boxes = [x["box"] for x in chosen]
+            if _coverage(node["box"], boxes) >= 0.5 and (
+                    ink is None or _lost_ink(ink, node["box"], boxes + (accounted or [])) <= LOST_INK_MAX):
                 return chosen
         return [node]
 
@@ -432,7 +466,7 @@ ONOMATOPOEIA_IN_BUBBLE = 0.9
 
 
 def build_notes(dets: list[dict], skip: tuple[str, ...], W: int, H: int,
-                text_threshold: float = 0.25) -> tuple[list[dict], list[dict]]:
+                text_threshold: float = 0.25, ink: np.ndarray | None = None) -> tuple[list[dict], list[dict]]:
     """Group text boxes by bubble and sort in reading order. Returns (notes, skipped)."""
     bubbles = [d for d in dets if d["cls"] == "bubble"]
     panels = [d for d in dets if d["cls"] == "panel"]
@@ -444,7 +478,8 @@ def build_notes(dets: list[dict], skip: tuple[str, ...], W: int, H: int,
     # Onomatopoeia inside a bubble is dialogue in stylized lettering (e.g. チンポでかっ): treat as text.
     promoted = [{**d, "cls": "text", "origin": "onomatopoeia_in_bubble"}
                 for d in dets if d["cls"] == "onomatopoeia" and in_bubble(d)]
-    texts = resolve_text_hierarchy([d for d in dets if d["cls"] == "text"], text_threshold)
+    texts = resolve_text_hierarchy([d for d in dets if d["cls"] == "text"], text_threshold, ink=ink,
+                                   accounted=[d["box"] for d in dets if d["cls"] == "onomatopoeia"])
     texts = _merge_overlapping(texts + promoted)
     skipped = [{**d, "reason": f"class:{d['cls']}"} for d in dets
                if d["cls"] in skip and not (d["cls"] == "onomatopoeia" and in_bubble(d))]
@@ -512,9 +547,9 @@ def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
         for g in groups:
             out.append({**n, "box": [float(v) for v in g.box], "text_box": [float(v) for v in g.box],
                         "parts": [[float(v) for v in b] for b in g.lines], "crop": g.crop,
-                        "vertical": g.vertical, "color": g.hex, "measured_color": g.measured_hex,
-                        "rgb": g.rgb, "split_from": i})
-    split = [n for n in out if "rgb" in n]
+                        "vertical": g.vertical, "rgb": g.rgb, "split_from": i,
+                        **({"color": g.hex, "measured_color": g.measured_hex} if g.rgb else {})})
+    split = [n for n in out if "split_from" in n]
     for n, letter in zip(split, colorsplit.speaker_labels([n["rgb"] for n in split])):
         n["speaker"] = letter
     return out
@@ -768,7 +803,8 @@ class Pipeline:
             t0 = time.perf_counter()
             dets = self.detector(img)
             notes, skipped = build_notes(dets, self.s.skip_classes, *img.size,
-                                         text_threshold=self.s.det_thresholds.get("text", 0.25))
+                                         text_threshold=self.s.det_thresholds.get("text", 0.25),
+                                         ink=ink_map(img))
             t["detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             if self.s.split_by_color:
                 t0, c0 = time.perf_counter(), time.process_time()
