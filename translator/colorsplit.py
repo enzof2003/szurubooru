@@ -8,7 +8,8 @@ vs lavender, yellow vs cyan). Steps:
              near-white pixel (the fill/outline pair). Background colour rarely touches white, so
              the mask is mostly the lettering itself.
   2. lines   project the lettering (tinted pixels, plus near-black next to near-white for untinted
-             text) across the block: vertical text -> columns, horizontal -> rows.
+             text) across the block: vertical text -> columns, horizontal -> rows. Vertical
+             columns come from columns() (the OCR chunks' cuts) when it finds more of them.
   3. colour  each line's dominant colour (densest hue window, then its median in CIELAB), or None
              when the line has too little colour (plain black/white text). Mixed lines (a phrase
              highlighted in another colour, e.g. a glowing magenta phrase inside red speech) are
@@ -209,9 +210,31 @@ def _neutral_runs(neutral: np.ndarray, mask: np.ndarray, runs: list[tuple[int, i
     return out
 
 
-def _analyse(a: np.ndarray, neutral: np.ndarray, mask: np.ndarray, vertical: bool, x1: int, y1: int) -> list[_Line]:
-    """Tinted lines from `mask` (with their colours) plus untinted lines from `neutral`."""
+def _column_lines(mask: np.ndarray, cols: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Tinted lines from column cuts (crop px, left to right): each column trimmed to its tinted
+    ink, so the lines keep their real gaps (for the OCR crops); columns without tinted ink dropped
+    (an untinted column is found by _neutral_runs, as with _lines)."""
+    prof = mask.sum(0).astype(float)
+    thr = GAP_FRAC * np.percentile(prof, 90)
+    out = []
+    for lo, hi in cols:
+        on = np.where(prof[lo:hi] > thr)[0]
+        if len(on):
+            out.append((lo + int(on[0]), lo + int(on[-1]) + 1))
+    return out
+
+
+def _analyse(a: np.ndarray, neutral: np.ndarray, mask: np.ndarray, vertical: bool, x1: int, y1: int,
+             cols: list[tuple[int, int]] | None = None) -> list[_Line]:
+    """Tinted lines from `mask` (with their colours) plus untinted lines from `neutral`.
+    `cols`: column cuts from columns() (crop px), used instead of the fixed-threshold line finder
+    for vertical text when they find more columns (it merges columns whose gaps catch background
+    tint: post 25687, two speakers' columns read as one mixed column, so no split)."""
     tinted = _lines(mask, vertical)
+    if vertical and cols:
+        from_cols = _column_lines(mask, cols)
+        if len(from_cols) > len(tinted):
+            tinted = from_cols
     runs = [(s, e, mask) for s, e in tinted] + [(s, e, neutral) for s, e in _neutral_runs(neutral, mask, tinted, vertical)]
     out = []
     for s, e, src in sorted(runs, key=lambda r: r[0]):
@@ -285,10 +308,12 @@ def _split(img: Image.Image, box: list[float], info: dict) -> list[Group] | None
     if mask.mean() < 0.005:
         return None
     neutral = (mx < DARK_MAX) & near_white  # untinted lettering: black text, dark outline of white text
+    cols = columns(img, [x1, y1, x2, y2])  # the same column cuts the OCR chunks use
+    cols = sorted((lo - x1, hi - x1) for lo, hi in cols) if cols else None
 
     analysed = {}
     for vertical in (True, False):
-        lines = _analyse(a, neutral, mask, vertical, x1, y1)
+        lines = _analyse(a, neutral, mask, vertical, x1, y1, cols)
         total = sum(l.n for l in lines) or 1
         analysed[vertical] = (sum(l.purity * l.n for l in lines) / total, lines)
     # Vertical (Japanese default) unless its columns are clearly mixed: rows can look "purer" when a
@@ -404,6 +429,9 @@ def speaker_labels(rgbs: list[tuple[int, int, int] | None]) -> list[str]:
 COL_SMOOTH = 9            # px, box filter on the column profile
 COL_MIN_PITCH = 24        # px, smallest column pitch considered
 COL_MIN_AC = 0.2          # autocorrelation the pitch peak must reach (regular columns)
+COL_WEAK_AC = 0.1         # weaker peaks at a shorter lag are tried first: columns of alternating
+                          # ink strength (post 25687: thin purple outlines between green ones) make
+                          # the two-column period the strong peak; kept only if the cuts validate
 COL_VALLEY = 0.5          # a gap's profile must be below this share of the lower neighbouring peak
 COL_WIDTH = (0.6, 1.5)    # inner column widths, in pitches
 COL_MIN_LEN = 3.0         # median column ink length, in pitches (a column holds several glyphs)
@@ -440,10 +468,23 @@ def columns(img: Image.Image, box: list[float]) -> list[tuple[int, int]] | None:
     if ac[0] <= 0:
         return None
     ac /= ac[0]
-    pitch = next((l for l in range(COL_MIN_PITCH, w // 2)
-                  if ac[l] > ac[l - 1] and ac[l] >= ac[l + 1] and ac[l] >= COL_MIN_AC), None)
-    if pitch is None:
-        return None
+    # Pitch candidates: autocorrelation peaks in lag order, up to the first one >= COL_MIN_AC;
+    # the first whose cuts validate wins.
+    for lag in range(COL_MIN_PITCH, w // 2):
+        if not (ac[lag] > ac[lag - 1] and ac[lag] >= ac[lag + 1] and ac[lag] >= COL_WEAK_AC):
+            continue
+        bounds = _column_bounds(prof, mask, lag)
+        if bounds:
+            return [(x1 + lo, x1 + hi) for lo, hi in zip(bounds[:-1], bounds[1:])][::-1]
+        if ac[lag] >= COL_MIN_AC:
+            return None
+    return None
+
+
+def _column_bounds(prof: np.ndarray, mask: np.ndarray, pitch: int) -> list[int] | None:
+    """Column cuts (crop px, left to right, 0 and the width included) for a column pitch, or
+    None unless they are deep valleys making columns about one pitch wide and several glyphs long."""
+    w = len(prof)
     r = int(0.3 * pitch)
     cuts: list[int] = []
     for i in range(r, w - r):
@@ -464,4 +505,4 @@ def columns(img: Image.Image, box: list[float]) -> list[tuple[int, int]] | None:
         lens.append(rows[-1] - rows[0] + 1 if len(rows) else 0)
     if np.median(lens) < COL_MIN_LEN * pitch:
         return None
-    return [(x1 + lo, x1 + hi) for lo, hi in zip(bounds[:-1], bounds[1:])][::-1]
+    return bounds

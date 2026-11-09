@@ -605,6 +605,14 @@ def build_notes(dets: list[dict], skip: tuple[str, ...], W: int, H: int,
     return ordered, skipped
 
 
+def _group_columns(parts: list[list[float]]) -> list[tuple[float, float]]:
+    """x ranges of a vertical colour group's columns, right to left and contiguous (cut halfway
+    between neighbouring columns), like colorsplit.columns(): the outer chunks take the crop's edges."""
+    xs = sorted(((p[0], p[2]) for p in parts), reverse=True)
+    cuts = [(a_lo + b_hi) / 2 for (a_lo, _), (_, b_hi) in zip(xs, xs[1:])]
+    return [(lo, hi) for lo, hi in zip(cuts + [xs[-1][0]], [xs[0][1]] + cuts)]
+
+
 def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
     """Replace each note whose text block mixes clearly different text colours by one note per
     colour run (reading order kept). Split notes get `color` (#rrggbb, display-boosted; none for
@@ -987,8 +995,10 @@ class Pipeline:
             dx, dy = (0, d) if n["vertical"] else (d, 0)
         top, bottom = round(max(0, y1 - dy)), round(min(img.height, y2 + dy))
         cols = None
-        if self.s.ocr_columns_per_call > 0 and not n.get("crop"):
-            cols = colorsplit.columns(img, n["text_box"])
+        if self.s.ocr_columns_per_call > 0:
+            # a colour group's columns are colorsplit's lines (from the same columns() cuts)
+            cols = (_group_columns(n["parts"]) if n["vertical"] else None) if n.get("crop") \
+                else colorsplit.columns(img, n["text_box"])
             if cols and len(cols) < self.s.ocr_column_split_min:
                 cols = None
         if not cols:

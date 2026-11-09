@@ -1,8 +1,10 @@
 """Regression tests: tall vertical blocks read in column chunks, OCR/note text cleaning.
 
-Fixtures are the text blocks of posts 14207, 14212, 14213 (256-colour PNGs; the column cuts move
-by <= 2 px against the originals). Whole, these blocks were OCRed with columns missing or out of
-order and, on 14207, a ♦♩♦♩… loop up to max_tokens. They are crops of the booru's images, so they
+Fixtures are the text blocks of posts 14207, 14212, 14213, 25687 (256-colour PNGs; the column cuts
+move by <= 2 px against the originals). Whole, the first three were OCRed with columns missing or
+out of order and, on 14207, a ♦♩♦♩… loop up to max_tokens. 25687 has two speakers told apart by
+colour (purple outlines in columns 1 and 4, green elsewhere): its columns were merged, so it gave
+one green note. They are crops of the booru's images, so they
 are NOT in git (tests/fixtures/ is ignored): recreate them with tests/make_fixtures.py; the tests
 that need them are skipped when they are missing.
 
@@ -27,7 +29,7 @@ import pipeline  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # post -> number of text columns in its block (counted on the image)
-BLOCKS = {14207: 7, 14212: 8, 14213: 6}
+BLOCKS = {14207: 7, 14212: 8, 14213: 6, 25687: 6}
 
 
 def block(pid: int) -> Image.Image:
@@ -77,6 +79,47 @@ class ColumnsTest(unittest.TestCase):
                 self.assertTrue(cols is None or len(cols) < 5, cols)
 
 
+def is_purple(hexc: str) -> bool:
+    r, g, b = (int(hexc[i:i + 2], 16) for i in (1, 3, 5))
+    return r > g and b > g
+
+
+@needs_fixtures
+class ColourSplitColumnsTest(unittest.TestCase):
+    """25687: purple text in columns 1 and 4, green in 2-3 and 5-6 -> four speaker turns."""
+
+    def test_weak_pitch_peak(self):
+        # alternating ink strength: the column pitch is a weak autocorrelation peak (0.18), the
+        # two-column period the strong one; the column cuts must still be found
+        img = block(25687)
+        cols = colorsplit.columns(img, [0, 0, img.width, img.height])
+        self.assertEqual(len(cols), 6)
+        widths = [hi - lo for lo, hi in cols]
+        self.assertLess(max(widths) / min(widths), 1.3)
+
+    def test_split_per_speaker_right_to_left(self):
+        img = block(25687)
+        groups = colorsplit.split_by_colour(img, [0, 0, img.width, img.height])
+        self.assertIsNotNone(groups)
+        self.assertEqual([is_purple(g.hex) for g in groups], [True, False, True, False])
+        self.assertEqual([len(g.lines) for g in groups], [1, 2, 1, 2])
+        self.assertTrue(all(g.vertical for g in groups))
+        xs = [g.box[0] for g in groups]
+        self.assertEqual(xs, sorted(xs, reverse=True))
+        # the lines are the OCR column cuts, trimmed: each line inside exactly one column
+        cols = colorsplit.columns(img, [0, 0, img.width, img.height])
+        lines = [l for g in groups for l in g.lines]
+        for (lo, hi), l in zip(cols, lines):
+            self.assertTrue(lo <= l[0] < l[2] <= hi, (lo, hi, l))
+
+    def test_notes(self):
+        img = block(25687)
+        notes = pipeline.split_notes_by_colour(img, [{"text_box": [0, 0, img.width, img.height],
+                                                      "box": [0, 0, img.width, img.height]}])
+        self.assertEqual(len(notes), 4)
+        self.assertEqual([n["speaker"] for n in notes], ["A", "B", "A", "B"])
+
+
 class FakeOcr:
     """Records the crops (page x range) it is called with; answers with the column numbers."""
 
@@ -122,6 +165,36 @@ class ChunkedOcrTest(unittest.TestCase):
                 xs = [x for x, _ in calls]
                 self.assertEqual(xs, sorted(xs, reverse=True))
                 self.assertTrue(all(g for _, g in calls))  # chunks pass the pitch: max_tokens capped
+
+    def test_colour_group_chunked_on_its_columns(self):
+        # a colour group with enough columns is chunked too, along colorsplit's lines (the same
+        # column cuts); split_min lowered so 25687's two-column green groups qualify
+        img = block(25687)
+        notes = pipeline.split_notes_by_colour(img, [{"text_box": [0, 0, img.width, img.height],
+                                                      "box": [0, 0, img.width, img.height]}])
+        cols = colorsplit.columns(img, [0, 0, img.width, img.height])
+        orig_crop = img.crop
+
+        def crop(box):
+            c = orig_crop(box)
+            c.info["x"] = (box[0], box[2])
+            return c
+
+        img.crop = crop
+        pl = object.__new__(pipeline.Pipeline)
+        pl.s = SimpleNamespace(ocr_pad=0.01, ocr_columns_per_call=1, ocr_column_split_min=2)
+        seen = []
+        for n in notes:
+            pl.ocr = FakeOcr(cols)
+            pl._ocr_note(img, n)
+            seen.append(n["source"].replace("\n", ""))
+            self.assertEqual(n.get("ocr_chunks"), [2, 2] if len(n["parts"]) == 2 else None)
+            # chunk crops stay inside the group's crop: never the neighbouring speaker's column
+            for (lo, hi), _ in pl.ocr.calls:
+                self.assertGreaterEqual(lo, round(n["crop"][0]))
+                self.assertLessEqual(hi, round(n["crop"][2]))
+        # every column once, right to left, across the four notes
+        self.assertEqual("".join(seen), "".join(f"[{i}]" for i in range(6)))
 
     def test_disabled(self):
         _, calls, note = self.run_note(14213, per_call=0)
