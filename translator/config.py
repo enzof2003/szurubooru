@@ -81,6 +81,11 @@ class Settings:
     ocr_max_pixels: int = field(default_factory=lambda: int(os.getenv("OCR_MAX_PIXELS", "0")))  # 0 = no downscale
     ocr_pad: float = field(default_factory=lambda: float(os.getenv("OCR_PAD", "0.01")))  # crop margin, x longest side
     ocr_timeout: float = field(default_factory=lambda: float(os.getenv("OCR_TIMEOUT", "180")))
+    # Low-resolution scans: crops whose estimated glyph size is below OCR_UPSCALE_BELOW px are
+    # upscaled OCR_UPSCALE x (Lanczos, then a light blur + unsharp mask against JPEG/AVIF noise and
+    # screentone). 0 disables.
+    ocr_upscale_below: float = field(default_factory=lambda: float(os.getenv("OCR_UPSCALE_BELOW", "16")))
+    ocr_upscale: float = field(default_factory=lambda: float(os.getenv("OCR_UPSCALE", "3")))
 
     # ---- LLM (any OpenAI-compatible /chat/completions endpoint)
     llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080/v1").rstrip("/"))

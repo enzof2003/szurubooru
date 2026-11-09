@@ -31,7 +31,7 @@ import config
 import numpy as np
 import onnxruntime as ort
 import requests
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 80_000_000  # ~9000x9000; refuse decompression bombs beyond that
 
@@ -256,12 +256,52 @@ class OcrServer:
             self._log = None
 
 
+def _runs(mask: np.ndarray, min_len: int = 2) -> list[tuple[int, int]]:
+    """(start, end) of the True runs of a 1-D mask, at least min_len long."""
+    d = np.diff(np.concatenate([[0], mask.astype(np.int8), [0]]))
+    return [(int(a), int(b)) for a, b in zip(np.where(d == 1)[0], np.where(d == -1)[0]) if b - a >= min_len]
+
+
+def _otsu(gray: np.ndarray) -> int:
+    p = np.bincount(gray.reshape(-1), minlength=256).astype(float)
+    p /= p.sum()
+    w, mu = np.cumsum(p), np.cumsum(p * np.arange(256))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        between = (mu[-1] * w - mu) ** 2 / (w * (1 - w))
+    return int(np.nanargmax(between))
+
+
+def glyph_size(crop: Image.Image) -> float | None:
+    """Rough glyph size (px) of dark text: median width of the ink columns and height of the ink lines.
+
+    Projected on the axis across the lines, each column (vertical text) or line (horizontal) is one
+    run ~ one glyph wide; projected along them, several lines merge into one long run, so when the
+    two medians disagree by > 2x the smaller one is the glyph. None = no usable dark ink (light text
+    on a dark or busy background, where the estimate would be meaningless)."""
+    gray = np.asarray(crop.convert("L"))
+    if gray.max() - gray.min() < 32:  # blank / flat crop (Otsu is undefined on one grey level)
+        return None
+    ink = gray < min(_otsu(gray), 160)
+    if ink.mean() < 0.005:
+        return None
+    meds = []
+    for axis in (0, 1):
+        r = [b - a for a, b in _runs(ink.any(axis))]
+        if not r:
+            return None
+        r = [x for x in r if x >= 0.3 * max(r)]  # dots, furigana, noise
+        meds.append(float(np.median(r)))
+    lo, hi = sorted(meds)
+    return lo if hi > 2 * lo else hi
+
+
 class PaddleOcr:
     """PaddleOCR-VL 1.6 'OCR:' task, same decoding settings as Koharu (greedy, repeat penalty 1.2)."""
 
     def __init__(self, s: config.Settings, server: OcrServer | None):
         self.s, self.server = s, server
         self.session = requests.Session()
+        self.last_upscale: float | None = None  # factor applied to the last crop (for meta)
 
     def _url_key(self):
         if self.server:
@@ -272,6 +312,15 @@ class PaddleOcr:
 
     def _prepare(self, crop: Image.Image) -> Image.Image:
         w, h = crop.size
+        g = glyph_size(crop) if self.s.ocr_upscale_below > 0 and self.s.ocr_upscale > 1 else None
+        self.last_upscale = None
+        if g is not None and g < self.s.ocr_upscale_below:
+            # Tested on post 3180 (~9 px glyphs, AVIF): plain upscaling changed nothing, a blur
+            # after the upscale smooths compression noise / screentone, the unsharp mask restores edges.
+            f = self.last_upscale = self.s.ocr_upscale
+            crop = crop.resize((round(w * f), round(h * f)), Image.LANCZOS)
+            crop = crop.filter(ImageFilter.GaussianBlur(f / 3)).filter(ImageFilter.UnsharpMask(1.5, 80, 2))
+            w, h = crop.size
         if self.s.ocr_max_pixels and w * h > self.s.ocr_max_pixels:
             f = (self.s.ocr_max_pixels / (w * h)) ** 0.5
             crop = crop.resize((max(1, round(w * f)), max(1, round(h * f))), Image.LANCZOS)
@@ -697,6 +746,8 @@ class Pipeline:
                 crop = img.crop((round(max(0, x1 - d)), round(max(0, y1 - d)),
                                  round(min(img.width, x2 + d)), round(min(img.height, y2 + d))))
                 n["source"], n["ocr_usage"] = self.ocr(crop)
+                if self.ocr.last_upscale:
+                    n["upscale"] = self.ocr.last_upscale
                 per_note.append(round((time.perf_counter() - t1) * 1000, 1))
             t["ocr_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             t["ocr_ms_per_note"] = per_note
@@ -744,7 +795,8 @@ class Pipeline:
                 "threads": self.s.threads,
                 "notes": [{"kind": n["kind"], "text_bbox_px": geom(n["text_box"])["bbox_px"],
                            "parts": len(n["parts"]), "ocr_tokens": n["ocr_usage"].get("prompt_tokens"),
-                           **({"origin": n["origin"]} if "origin" in n else {})}
+                           **({"origin": n["origin"]} if "origin" in n else {}),
+                           **({"upscale": n["upscale"]} if "upscale" in n else {})}
                           for n in notes],
                 "skipped": [{**geom(d["box"]), "class": d["cls"], "reason": d["reason"],
                              **({"source": d["source"]} if "source" in d else {})} for d in skipped],

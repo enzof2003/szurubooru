@@ -45,6 +45,7 @@
 幽々子 = Yuyuko
 八雲藍 = Ran Yakumo
 八雲紫 = Yukari Yakumo
+八雲 = Yakumo [family name of Yukari / Ran; 八雲紫 = Yukari Yakumo]
 ゆかりん = Yukarin [Yukari's nickname]
 
 # ===== IaMP / SWR / Oni =====
@@ -307,6 +308,7 @@
 孕ませ = breed / knock up
 孕む = get pregnant
 種付け = breeding
+種馬 = stud [breeding stallion; sexual slang]
 イク = cum [orgasm: "I'm cumming"]
 イっちゃう = I'm cumming
 絶頂 = climax
@@ -341,6 +343,10 @@
 
 # ===== Known OCR misreads / special notations =====
 マツ奴隷 = masochist slave [OCR misread of マゾ奴隷]
+ハ雲 = Yakumo [OCR misread of 八雲 (八 read as katakana ハ); 八雲紫 = Yukari Yakumo]
+ハ雪皆 = Yukari Yakumo [OCR misread of 八雲紫]
+ハ雪 = Yakumo [OCR misread of 八雲 (八→ハ, 雲→雪)]
+煙馬 = stud [OCR misread of 種馬, breeding stallion]
 正 = tally mark [when repeated (正正正…), it's a Japanese tally: each full 正 = 5, partial forms (一, T, F, 下) = 1–4; translate as the total number, e.g. "25" or "||||| ×5"]
 
 # ===== Grammar: who does what (giving/receiving) =====
