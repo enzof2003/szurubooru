@@ -62,6 +62,54 @@ function _getNoteSize(note) {
     return new Point(max.x - min.x, max.y - min.y);
 }
 
+// Machine-translation notes may carry their speaker's text colour right after
+// the prefix: "[MT]{c:#rrggbb} text". Only exactly #rrggbb is accepted; the
+// marker is hidden from the displayed text and colours the note instead.
+// Anything else (no marker, malformed marker) renders exactly as before.
+const NOTE_COLOR_RE = /^(\s*\[MT\??\])\{c:(#[0-9a-fA-F]{6})\}/;
+
+function _parseNoteColor(text) {
+    const match = NOTE_COLOR_RE.exec(text || "");
+    if (!match) {
+        return { color: null, text: text };
+    }
+    return {
+        color: match[2].toLowerCase(),
+        text: match[1] + text.substring(match[0].length),
+    };
+}
+
+function _hexToRgb(color) {
+    const n = parseInt(color.substring(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// Light tint for the hover text box: 18% colour on white, so the black note
+// text keeps its contrast (the note box is light in both themes).
+function _tint(color) {
+    const rgb = _hexToRgb(color).map((c) =>
+        Math.round(255 + (c - 255) * 0.18)
+    );
+    return "rgb(" + rgb.join(",") + ")";
+}
+
+function _applyNoteColor(note) {
+    const color = _parseNoteColor(note.text).color;
+    const style = note.groupNode.style;
+    if (color) {
+        style.setProperty("--note-stroke", color);
+        style.setProperty(
+            "--note-fill",
+            "rgba(" + _hexToRgb(color).join(",") + ",0.25)"
+        );
+        style.setProperty("--note-stroke-width", "2px");
+    } else {
+        style.removeProperty("--note-stroke");
+        style.removeProperty("--note-fill");
+        style.removeProperty("--note-stroke-width");
+    }
+}
+
 class State {
     constructor(control, stateName) {
         this._control = control;
@@ -719,8 +767,13 @@ class PostNotesOverlayControl extends events.EventTarget {
     }
 
     _showNoteText(note) {
-        this._textNode.querySelector(".wrapper").innerHTML =
-            misc.formatMarkdown(note.text);
+        const parsed = _parseNoteColor(note.text);
+        const wrapperNode = this._textNode.querySelector(".wrapper");
+        wrapperNode.innerHTML = misc.formatMarkdown(parsed.text);
+        wrapperNode.style.borderColor = parsed.color || "";
+        wrapperNode.style.borderWidth = parsed.color ? "2px" : "";
+        wrapperNode.style.background = parsed.color ? _tint(parsed.color) : "";
+        _applyNoteColor(note); // text may have changed since the box was drawn
         this._textNode.style.display = "block";
         const bodyRect = document.body.getBoundingClientRect();
         const noteRect = this._textNode.getBoundingClientRect();
@@ -803,6 +856,7 @@ class PostNotesOverlayControl extends events.EventTarget {
             this._updatePolygonNotePoints(note);
             groupNode.appendChild(node);
         }
+        _applyNoteColor(note);
         for (let point of note.polygon) {
             this._createEdgeNode(point, groupNode);
         }

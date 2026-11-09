@@ -67,6 +67,9 @@ class Settings:
     det_thresholds: dict = field(default_factory=lambda: _thresholds(
         "DET_THRESHOLDS", "text=0.25,onomatopoeia=0.2,bubble=0.5,panel=0.5"))
     skip_classes: tuple[str, ...] = field(default_factory=lambda: _list("SKIP_CLASSES", "onomatopoeia"))
+    # Blocks holding several speakers told apart by text colour -> one note per colour run
+    # (colorsplit.py); each such note carries its measured colour and a speaker letter for the LLM.
+    split_by_color: bool = field(default_factory=lambda: _bool("SPLIT_BY_COLOR", True))
 
     # ---- OCR: PaddleOCR-VL 1.6 behind llama-server
     # managed = the service starts/stops its own llama-server; external = use OCR_BASE_URL as is.

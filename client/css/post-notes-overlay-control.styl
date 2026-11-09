@@ -30,11 +30,13 @@
 
 .notes-overlay
     g
-        stroke-width: 1px
+        stroke-width: var(--note-stroke-width, 1px)
 
+        // --note-*: speaker colour of machine-translated notes ("[MT]{c:#rrggbb}"),
+        // set per note by post_notes_overlay_control.js; unset = default look.
         polygon
-            fill: $note-background-color
-            stroke: $note-border-color
+            fill: var(--note-fill, $note-background-color)
+            stroke: var(--note-stroke, $note-border-color)
             pointer-events: auto
         ellipse
             display: none

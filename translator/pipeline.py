@@ -6,6 +6,8 @@ Stages:
               classes in SKIP_CLASSES (default: onomatopoeia) are only counted in meta.skipped,
               except onomatopoeia >= 90% inside a bubble, which is dialogue and is handled as text
   3. order    manga reading order: panels right->left, top->bottom (XY-cut), then notes inside each panel
+  3b. colour  SPLIT_BY_COLOR: a block whose columns/lines carry clearly different text colours
+              (several speakers in one block) becomes one note per colour run (colorsplit.py)
   4. ocr      PaddleOCR-VL 1.6 (llama-server) on each note's text region, one call per note
   5. filter   drop notes with no Japanese (Latin text, digits, bare punctuation)
   6. llm      one OpenAI-compatible chat call per page, JSON in / JSON out
@@ -26,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import childproc
+import colorsplit
 import config
 
 import numpy as np
@@ -496,6 +499,26 @@ def build_notes(dets: list[dict], skip: tuple[str, ...], W: int, H: int,
     return ordered, skipped
 
 
+def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
+    """Replace each note whose text block mixes clearly different text colours by one note per
+    colour run (reading order kept). Split notes get `color` (#rrggbb, measured), `speaker`
+    (page-wide letter: same colour = same letter), `crop` (OCR region) and `split_from`."""
+    out = []
+    for i, n in enumerate(notes):
+        groups = colorsplit.split_by_colour(img, n["text_box"])
+        if not groups:
+            out.append(n)
+            continue
+        for g in groups:
+            out.append({**n, "box": [float(v) for v in g.box], "text_box": [float(v) for v in g.box],
+                        "parts": [[float(v) for v in b] for b in g.lines], "crop": g.crop,
+                        "vertical": g.vertical, "color": g.hex, "rgb": g.rgb, "split_from": i})
+    split = [n for n in out if "rgb" in n]
+    for n, letter in zip(split, colorsplit.speaker_labels([n["rgb"] for n in split])):
+        n["speaker"] = letter
+    return out
+
+
 # --------------------------------------------------------------------------- LLM
 
 
@@ -530,7 +553,7 @@ class Translator:
         f = self.s.instructions_file
         return f.read_text(encoding="utf-8").strip() if f.exists() else ""
 
-    def _system_prompt(self, sources: list[str]) -> str:
+    def _system_prompt(self, sources: list[str], speakers: bool = False) -> str:
         s = self.s
         instructions = self._instructions()
         glossary = list(self._page_glossary(sources).items())
@@ -544,6 +567,14 @@ class Translator:
             "Reply with ONLY a JSON object, no markdown, no commentary: "
             "{\"translations\": [{\"id\": int, \"text\": str}]} with exactly one entry per input id.",
         ]
+        if speakers:
+            parts.append(
+                "Some segments have a \"speaker\" letter: on this page several characters share one text "
+                "block and are told apart only by the colour of their lettering. Each such segment is one "
+                "character's line; the same letter is the same character everywhere on the page, a "
+                "different letter is a different character answering. Translate each segment as that "
+                "character's own words (keep who says what), and do not put the letter in the translation."
+            )
         if instructions:
             parts.append(
                 "Translator instructions (the input JSON repeats them as \"instructions\", right before the "
@@ -618,6 +649,7 @@ class Translator:
                 "text": blocks[i]["source"],
                 "box": [round(blocks[i]["box"][0] / W * 1000), round(blocks[i]["box"][1] / H * 1000),
                         round(blocks[i]["box"][2] / W * 1000), round(blocks[i]["box"][3] / H * 1000)],
+                **({"speaker": blocks[i]["speaker"]} if blocks[i].get("speaker") else {}),
             }
             for i in ids
         ]
@@ -640,7 +672,8 @@ class Translator:
         body: dict = {
             "model": s.llm_model,
             "messages": [
-                {"role": "system", "content": self._system_prompt(sources)},
+                {"role": "system", "content": self._system_prompt(
+                    sources, speakers=any(blocks[i].get("speaker") for i in ids))},
                 {"role": "user", "content": user_content},
             ],
             "temperature": s.llm_temperature,
@@ -736,15 +769,24 @@ class Pipeline:
             notes, skipped = build_notes(dets, self.s.skip_classes, *img.size,
                                          text_threshold=self.s.det_thresholds.get("text", 0.25))
             t["detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            if self.s.split_by_color:
+                t0, c0 = time.perf_counter(), time.process_time()
+                notes = split_notes_by_colour(img, notes)
+                t["color_split_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                t["color_split_cpu_ms"] = round((time.process_time() - c0) * 1000, 1)
 
             t0 = time.perf_counter()
             per_note = []
             for n in notes:
                 t1 = time.perf_counter()
-                x1, y1, x2, y2 = n["text_box"]
+                x1, y1, x2, y2 = n.get("crop") or n["text_box"]
                 d = self.s.ocr_pad * max(x2 - x1, y2 - y1)
-                crop = img.crop((round(max(0, x1 - d)), round(max(0, y1 - d)),
-                                 round(min(img.width, x2 + d)), round(min(img.height, y2 + d))))
+                # colour groups: no margin across the lines, it would reach the neighbouring speaker
+                dx = dy = d
+                if n.get("crop"):
+                    dx, dy = (0, d) if n["vertical"] else (d, 0)
+                crop = img.crop((round(max(0, x1 - dx)), round(max(0, y1 - dy)),
+                                 round(min(img.width, x2 + dx)), round(min(img.height, y2 + dy))))
                 n["source"], n["ocr_usage"] = self.ocr(crop)
                 if self.ocr.last_upscale:
                     n["upscale"] = self.ocr.last_upscale
@@ -781,6 +823,8 @@ class Pipeline:
         blocks = []
         for n, tr in zip(notes, translations):
             b = {**geom(n["box"]), "source": n["source"]}
+            if n.get("color"):
+                b["color"] = n["color"]  # measured text colour of a split speaker group, #rrggbb
             if translate:
                 b["translation"] = tr  # None = the LLM gave nothing for it even after the retry
             blocks.append(b)
@@ -796,7 +840,8 @@ class Pipeline:
                 "notes": [{"kind": n["kind"], "text_bbox_px": geom(n["text_box"])["bbox_px"],
                            "parts": len(n["parts"]), "ocr_tokens": n["ocr_usage"].get("prompt_tokens"),
                            **({"origin": n["origin"]} if "origin" in n else {}),
-                           **({"upscale": n["upscale"]} if "upscale" in n else {})}
+                           **({"upscale": n["upscale"]} if "upscale" in n else {}),
+                           **({k: n[k] for k in ("color", "speaker", "split_from") if k in n})}
                           for n in notes],
                 "skipped": [{**geom(d["box"]), "class": d["cls"], "reason": d["reason"],
                              **({"source": d["source"]} if "source" in d else {})} for d in skipped],

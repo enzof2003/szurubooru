@@ -50,6 +50,10 @@ MERGE_RETRIES = 5  # post version conflicts
 QUEUE_FULL_RETRIES = 40  # translator 503 "queue full", ~30 s apart
 MT_PREFIX_RE = re.compile(r"^\s*\[MT\??\]")  # [MT] or [MT?]
 MT_PLACEHOLDER_RE = re.compile(r"^\s*\[MT\?\]")  # untranslated
+# Speaker colour from the translator (text blocks that mix speakers by
+# lettering colour): stored right after the prefix as "{c:#rrggbb}", which the
+# client strips and turns into the note's border/tint. Strictly #rrggbb.
+COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 # Re-run control: a post with TAG_DONE is not translated again (409) until
 # someone removes the tag. TAG_INCOMPLETE marks runs that left [MT?] notes.
 TAG_DONE = "machine_translated"
@@ -239,13 +243,26 @@ def _clean_polygon(polygon: Any) -> Optional[List[List[float]]]:
     return ret
 
 
-def note_text(source: Optional[str], translation: Optional[str]) -> str:
+def note_color(color: Any) -> Optional[str]:
+    """The block's colour as lowercase #rrggbb, or None (anything else)."""
+    if isinstance(color, str) and COLOR_RE.fullmatch(color):
+        return color.lower()
+    return None
+
+
+def note_text(
+    source: Optional[str],
+    translation: Optional[str],
+    color: Optional[str] = None,
+) -> str:
     source = (source or "").strip()
     translation = (translation or "").strip() if translation else ""
+    color = note_color(color)
+    marker = "{c:%s}" % color if color else ""
     if translation:
-        return "[MT] %s" % translation
+        return "[MT]%s %s" % (marker, translation)
     # No translation: show the Japanese so the note isn't empty.
-    return "[MT?] %s" % source
+    return "[MT?]%s %s" % (marker, source)
 
 
 def is_mt_note(text: str) -> bool:
@@ -296,7 +313,10 @@ def plan_notes(
             skipped += 1
             continue
         to_add.append(
-            {"polygon": polygon, "text": note_text(source, translation)}
+            {
+                "polygon": polygon,
+                "text": note_text(source, translation, block.get("color")),
+            }
         )
     return to_add, to_remove, skipped
 

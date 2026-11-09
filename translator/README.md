@@ -61,6 +61,7 @@ kill-on-close; Linux `PR_SET_PDEATHSIG`). At startup the service refuses to run 
 | `DET_MODEL` | `models/rfdetr/rfdetr-seg-2xlarge-nomask.onnx` | detector (mask head pruned, identical boxes) |
 | `DET_THRESHOLDS` | `text=0.25,onomatopoeia=0.2,bubble=0.5,panel=0.5` | per-class score thresholds |
 | `SKIP_CLASSES` | `onomatopoeia` | not OCR'd/translated, listed in `meta.skipped` (except onomatopoeia ≥ 90% inside a bubble) |
+| `SPLIT_BY_COLOR` | on | a block whose columns/lines have clearly different text colours (several speakers in one block) becomes one block per colour run, with its measured `color` and a speaker letter for the LLM (`colorsplit.py`) |
 | `OCR_SERVER` | `managed` | `managed` = service runs `OCR_SERVER_BIN`; `external` = use `OCR_BASE_URL` |
 | `OCR_SERVER_BIN` | `tools/llama.cpp-cpu/llama-server[.exe]` | CPU llama.cpp build |
 | `OCR_PAD` | 0.01 | crop margin, fraction of the crop's longest side |
@@ -79,6 +80,7 @@ GET  /health                    {"status": "ok", "busy": false, "queued": 0}  (n
 ```
 
 Response: `{"width", "height", "blocks": [{"polygon", "bbox_px", "source", "translation"}], "meta"}`.
+Blocks split by speaker colour also carry `"color": "#rrggbb"` (the measured text colour).
 `translation` is `null` (never `""`) when the LLM gave nothing for that block even after the retry;
 such blocks are also listed in `meta.untranslated` (`[{"id", "source"}]`, empty list when complete).
 `polygon` is normalized to 0..1 (szurubooru note format); for a bubble it is the bubble's box.
