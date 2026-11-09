@@ -110,6 +110,19 @@ class StrikeThroughWrapper extends BaseMarkdownWrapper {
     }
 }
 
+// Notes: "~" is never strikethrough (translations use it for a playful tone,
+// "Oh my~ ... okay~?"). Every tilde (and an escaped "\~") is hidden from both
+// marked's GFM del syntax and StrikeThroughWrapper, then restored verbatim.
+class NoStrikeThroughWrapper extends BaseMarkdownWrapper {
+    preprocess(text) {
+        return text.replace(/\\?~/g, "%%%W");
+    }
+
+    postprocess(text) {
+        return text.replace(/%%%W/g, "~");
+    }
+}
+
 class FaviconWrapper extends BaseMarkdownWrapper {
     preprocess(text) {
         return text.replace(
@@ -146,7 +159,9 @@ function createRenderer() {
     return renderer;
 }
 
-function formatMarkdown(text) {
+// settings.strikethrough === false: "~" / "~~" render as plain tildes (notes).
+function formatMarkdown(text, settings) {
+    const strikethrough = !settings || settings.strikethrough !== false;
     const renderer = createRenderer();
     const options = {
         renderer: renderer,
@@ -156,15 +171,15 @@ function formatMarkdown(text) {
     };
     let wrappers = [
         new SjisWrapper(),
-        new TildeWrapper(),
+        strikethrough ? new TildeWrapper() : new NoStrikeThroughWrapper(),
         new TagPermalinkFixWrapper(),
         new EntityPermalinkWrapper(),
         new SearchPermalinkWrapper(),
         new SpoilersWrapper(),
         new SmallWrapper(),
-        new StrikeThroughWrapper(),
+        strikethrough ? new StrikeThroughWrapper() : null,
         new FaviconWrapper(),
-    ];
+    ].filter((wrapper) => wrapper !== null);
     text = escapeHtml(text);
     for (let wrapper of wrappers) {
         text = wrapper.preprocess(text);

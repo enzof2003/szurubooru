@@ -769,7 +769,9 @@ class PostNotesOverlayControl extends events.EventTarget {
     _showNoteText(note) {
         const parsed = _parseNoteColor(note.text);
         const wrapperNode = this._textNode.querySelector(".wrapper");
-        wrapperNode.innerHTML = misc.formatMarkdown(parsed.text);
+        wrapperNode.innerHTML = misc.formatMarkdown(parsed.text, {
+            strikethrough: false,
+        });
         wrapperNode.style.borderColor = parsed.color || "";
         wrapperNode.style.borderWidth = parsed.color ? "2px" : "";
         wrapperNode.style.background = parsed.color ? _tint(parsed.color) : "";
