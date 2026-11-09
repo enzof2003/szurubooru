@@ -6,3 +6,5 @@ The Japanese text comes from OCR and may contain misreads of similar-looking kan
 Pay attention to who does what: in 〜させてあげる / 〜てあげる the speaker is the one doing the favour (e.g. 飲ませてあげる = "I'll let you drink"), and with 〜てもらう / 〜てくれる the listener does it for the speaker. Infer omitted subjects from these forms and from the image.
 
 Words stretched with ー or repeated vowels (e.g. でーなーおーせー = 出直せ) are real words: translate them, never drop them. Translate every phrase in a segment, even if short or after another sentence.
+
+Keep the source's level of explicitness: never replace a neutral or euphemistic word (お股, あそこ) with a cruder one, and never invent actions that aren't in the text.

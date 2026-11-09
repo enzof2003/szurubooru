@@ -360,3 +360,6 @@
 てもらう = [grammar note, not a rendering: the listener does it for the speaker]
 溜めた = saved up / pent up [usually the speaker's own, when they offer it]
 根元まで = all the way in / balls-deep [idiom: "to the base"; never translate literally as "to the root"]
+クる = coming [climax/orgasm; katakana 来る, never "poking"]
+何かクる = something's coming [about to climax]
+お股 = crotch [keep neutral, don't make it more explicit]
