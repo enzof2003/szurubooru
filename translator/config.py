@@ -96,6 +96,10 @@ class Settings:
     ocr_gpu_layers: int = field(default_factory=lambda: int(os.getenv("OCR_GPU_LAYERS", "0")))
     ocr_max_pixels: int = field(default_factory=lambda: int(os.getenv("OCR_MAX_PIXELS", "0")))  # 0 = no downscale
     ocr_pad: float = field(default_factory=lambda: float(os.getenv("OCR_PAD", "0.01")))  # crop margin, x longest side
+    # Vertical blocks with >= OCR_COLUMN_SPLIT_MIN columns are OCRed OCR_COLUMNS_PER_CALL columns at a
+    # time (whole, they lose columns / read them out of order); 0 = always whole.
+    ocr_columns_per_call: int = field(default_factory=lambda: int(os.getenv("OCR_COLUMNS_PER_CALL", "3")))
+    ocr_column_split_min: int = field(default_factory=lambda: int(os.getenv("OCR_COLUMN_SPLIT_MIN", "5")))
     ocr_timeout: float = field(default_factory=lambda: float(os.getenv("OCR_TIMEOUT", "180")))
     # Low-resolution scans: crops whose estimated glyph size is below OCR_UPSCALE_BELOW px are
     # upscaled OCR_UPSCALE x (Lanczos, then a light blur + unsharp mask against JPEG/AVIF noise and

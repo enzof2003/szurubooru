@@ -8,3 +8,5 @@ Pay attention to who does what: in 〜させてあげる / 〜てあげる the s
 Words stretched with ー or repeated vowels (e.g. でーなーおーせー = 出直せ) are real words: translate them, never drop them. Translate every phrase in a segment, even if short or after another sentence.
 
 Keep the source's level of explicitness: never replace a neutral or euphemistic word (お股, あそこ) with a cruder one, and never invent actions that aren't in the text.
+
+Translate every line in order, including interjections and animal sounds like もー (moo); never drop or reorder.

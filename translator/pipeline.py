@@ -8,7 +8,10 @@ Stages:
   3. order    manga reading order: panels right->left, top->bottom (XY-cut), then notes inside each panel
   3b. colour  SPLIT_BY_COLOR: a block whose columns/lines carry clearly different text colours
               (several speakers in one block) becomes one note per colour run (colorsplit.py)
-  4. ocr      PaddleOCR-VL 1.6 (llama-server) on each note's text region, one call per note
+  4. ocr      PaddleOCR-VL 1.6 (llama-server) on each note's text region, one call per note, except
+              vertical blocks with many columns: a few columns per call, right to left (whole, they
+              lose columns and read them out of order). Repetition loops are trimmed and runs of
+              decorative symbols (♦♩♦♩…) stripped (clean_text).
   5. filter   drop notes with no Japanese (Latin text, digits, bare punctuation)
   6. llm      one OpenAI-compatible chat call per page, JSON in / JSON out
 """
@@ -24,6 +27,7 @@ import secrets
 import subprocess
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,6 +55,11 @@ JAPANESE_RE = re.compile(
 )
 CLASSES = ("text", "onomatopoeia", "bubble", "panel")  # RF-DETR class ids 0..3
 
+# OCR repetition loop: a 1-4 char unit repeated 8+ times in a row (♦♩♦♩… until max_tokens on post
+# 14207). Kept 3 times: a real long scream (ああああ…) stays a scream.
+LOOP_RE = re.compile(r"(.{1,4}?)\1{7,}", re.S)
+HEARTS = frozenset("♡♥❤💕💗💖💓")
+
 
 # --------------------------------------------------------------------------- helpers
 
@@ -63,6 +72,38 @@ def load_image(data: bytes) -> Image.Image:
 
 def has_japanese(text: str) -> bool:
     return bool(JAPANESE_RE.search(text))
+
+
+def _decorative(ch: str) -> bool:
+    return unicodedata.category(ch) == "So"  # ♡ ♪ ★ ♦ ♩ emoji…; not punctuation (… ! ? ー)
+
+
+def strip_decorations(text: str) -> str:
+    """Drop runs of more than 3 decorative symbols (OCR garbage like ♦♩♦♩…, copied by the LLM).
+    A run of one repeated heart (♡♡♡♡♡) is real lettering: capped at 3 instead."""
+    out: list[str] = []
+    run: list[str] = []
+
+    def flush():
+        if len(run) <= 3:
+            out.extend(run)
+        elif len(set(run)) == 1 and run[0] in HEARTS:
+            out.extend(run[:3])
+        run.clear()
+
+    for ch in text:
+        if _decorative(ch):
+            run.append(ch)
+        else:
+            flush()
+            out.append(ch)
+    flush()
+    return re.sub(r"[ \t]{2,}", " ", "".join(out)).strip()
+
+
+def clean_text(text: str) -> str:
+    """OCR text and note text: repetition loops trimmed, decorative runs stripped."""
+    return strip_decorations(LOOP_RE.sub(lambda m: m.group(1) * 3, text or ""))
 
 
 def _area(b) -> float:
@@ -332,8 +373,14 @@ class PaddleOcr:
             crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
         return crop
 
-    def __call__(self, crop: Image.Image) -> tuple[str, dict]:
+    def __call__(self, crop: Image.Image, glyph: float | None = None) -> tuple[str, dict]:
+        """`glyph`: measured column pitch (px) of a column chunk: caps max_tokens by the crop's size
+        so a repetition loop can't run on (two tokens per glyph cell, gaps counted, is ample).
+        Whole blocks keep 512: glyph_size() can overestimate ~2x and the cap would cut real text."""
         url, key = self._url_key()
+        max_tokens = 512
+        if glyph:
+            max_tokens = min(max_tokens, round(2 * crop.width * crop.height / (glyph * glyph)) + 32)
         buf = io.BytesIO()
         self._prepare(crop).save(buf, format="PNG")
         body = {
@@ -341,14 +388,17 @@ class PaddleOcr:
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()}},
                 {"type": "text", "text": "OCR:"},
             ]}],
-            "temperature": 0, "max_tokens": 512, "repeat_penalty": 1.2, "repeat_last_n": 512,
+            "temperature": 0, "max_tokens": max_tokens, "repeat_penalty": 1.2, "repeat_last_n": 512,
         }
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         r = self.session.post(f"{url}/chat/completions", json=body, headers=headers, timeout=self.s.ocr_timeout)
         r.raise_for_status()
         data = r.json()
         text = (data["choices"][0]["message"].get("content") or "").replace("️", "").strip()
-        return text, data.get("usage") or {}
+        usage = data.get("usage") or {}
+        if usage.get("completion_tokens", 0) >= max_tokens:
+            usage["truncated"] = True  # hit the cap: probably a loop (trimmed by clean_text)
+        return text, usage
 
 
 # --------------------------------------------------------------------------- notes
@@ -891,15 +941,7 @@ class Pipeline:
             per_note = []
             for n in notes:
                 t1 = time.perf_counter()
-                x1, y1, x2, y2 = n.get("crop") or n["text_box"]
-                d = self.s.ocr_pad * max(x2 - x1, y2 - y1)
-                # colour groups: no margin across the lines, it would reach the neighbouring speaker
-                dx = dy = d
-                if n.get("crop"):
-                    dx, dy = (0, d) if n["vertical"] else (d, 0)
-                crop = img.crop((round(max(0, x1 - dx)), round(max(0, y1 - dy)),
-                                 round(min(img.width, x2 + dx)), round(min(img.height, y2 + dy))))
-                n["source"], n["ocr_usage"] = self.ocr(crop)
+                self._ocr_note(img, n)
                 if self.ocr.last_upscale:
                     n["upscale"] = self.ocr.last_upscale
                 per_note.append(round((time.perf_counter() - t1) * 1000, 1))
@@ -913,6 +955,45 @@ class Pipeline:
             else:
                 skipped.append({**n, "cls": "text", "reason": "no_japanese"})
         return kept, skipped, t
+
+    def _ocr_note(self, img: Image.Image, n: dict) -> None:
+        """Sets n["source"], n["ocr_usage"] and, for a block read in column chunks, n["ocr_chunks"]."""
+        x1, y1, x2, y2 = n.get("crop") or n["text_box"]
+        d = self.s.ocr_pad * max(x2 - x1, y2 - y1)
+        # colour groups: no margin across the lines, it would reach the neighbouring speaker
+        dx = dy = d
+        if n.get("crop"):
+            dx, dy = (0, d) if n["vertical"] else (d, 0)
+        top, bottom = round(max(0, y1 - dy)), round(min(img.height, y2 + dy))
+        cols = None
+        if self.s.ocr_columns_per_call > 0 and not n.get("crop"):
+            cols = colorsplit.columns(img, n["text_box"])
+            if cols and len(cols) < self.s.ocr_column_split_min:
+                cols = None
+        if not cols:
+            crop = img.crop((round(max(0, x1 - dx)), top, round(min(img.width, x2 + dx)), bottom))
+            text, n["ocr_usage"] = self.ocr(crop)
+            n["source"] = clean_text(text)
+            return
+        # Columns right -> left, k per call; the outer chunks keep the block's margin.
+        k = self.s.ocr_columns_per_call
+        pitch = (cols[0][1] - cols[-1][0]) / len(cols)
+        texts, usage = [], {}
+        for i in range(0, len(cols), k):
+            chunk = cols[i:i + k]
+            lo = x1 - dx if i + k >= len(cols) else min(c[0] for c in chunk)
+            hi = x2 + dx if i == 0 else max(c[1] for c in chunk)
+            crop = img.crop((round(max(0, lo)), top, round(min(img.width, hi)), bottom))
+            text, u = self.ocr(crop, glyph=pitch)
+            texts.append(clean_text(text))
+            for key, v in u.items():
+                if isinstance(v, bool):
+                    usage[key] = usage.get(key, False) or v
+                elif isinstance(v, (int, float)):
+                    usage[key] = usage.get(key, 0) + v
+        n["source"] = "\n".join(t for t in texts if t)  # a line break = a column break (system prompt)
+        n["ocr_usage"] = usage
+        n["ocr_chunks"] = [len(cols), len(texts)]
 
     def run(self, img: Image.Image, translate: bool = True,
             context_tags: dict[str, list[str]] | None = None) -> dict:
@@ -939,7 +1020,8 @@ class Pipeline:
             if n.get("color"):
                 b["color"] = n["color"]  # text colour of a split speaker group (display-boosted), #rrggbb
             if translate:
-                b["translation"] = tr  # None = the LLM gave nothing for it even after the retry
+                # None = the LLM gave nothing for it even after the retry
+                b["translation"] = (clean_text(tr) or None) if tr is not None else None
             blocks.append(b)
         untranslated = [{"id": i, "source": b["source"]} for i, b in enumerate(blocks)
                         if translate and b["translation"] is None]
@@ -954,6 +1036,9 @@ class Pipeline:
                            "parts": len(n["parts"]), "ocr_tokens": n["ocr_usage"].get("prompt_tokens"),
                            **({"origin": n["origin"]} if "origin" in n else {}),
                            **({"upscale": n["upscale"]} if "upscale" in n else {}),
+                           # [columns found, OCR calls] for a block read in column chunks
+                           **({"ocr_chunks": n["ocr_chunks"]} if "ocr_chunks" in n else {}),
+                           **({"ocr_truncated": True} if n["ocr_usage"].get("truncated") else {}),
                            **({k: n[k] for k in ("color", "measured_color", "speaker", "split_from") if k in n})}
                           for n in notes],
                 "skipped": [{**geom(d["box"]), "class": d["cls"], "reason": d["reason"],

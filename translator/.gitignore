@@ -17,3 +17,6 @@ Test.khrproj/
 # tools/: llama.cpp binaries are not tracked, only our scripts
 tools/*
 !tools/*.py
+
+# test fixtures are crops of the booru's images: recreate with tests/make_fixtures.py
+tests/fixtures/

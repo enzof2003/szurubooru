@@ -397,3 +397,71 @@ def speaker_labels(rgbs: list[tuple[int, int, int] | None]) -> list[str]:
             order.append(k)
         out.append(chr(ord("A") + order.index(k)) if order.index(k) < 26 else "?")
     return out
+
+
+# --------------------------------------------------------------------------- columns (OCR)
+
+COL_SMOOTH = 9            # px, box filter on the column profile
+COL_MIN_PITCH = 24        # px, smallest column pitch considered
+COL_MIN_AC = 0.2          # autocorrelation the pitch peak must reach (regular columns)
+COL_VALLEY = 0.5          # a gap's profile must be below this share of the lower neighbouring peak
+COL_WIDTH = (0.6, 1.5)    # inner column widths, in pitches
+COL_MIN_LEN = 3.0         # median column ink length, in pitches (a column holds several glyphs)
+
+
+def columns(img: Image.Image, box: list[float]) -> list[tuple[int, int]] | None:
+    """Vertical text columns of the block `box` as page-px x ranges, right to left, or None when
+    the block isn't clearly regular vertical text (then OCR reads it whole).
+
+    Big blocks with many columns are read badly in one OCR call (columns dropped or read out of
+    order, repetition loops: posts 14207/14212/14213), so the caller OCRs them a few columns at a
+    time. The fixed-threshold line finder (_lines) can't separate these columns: a glowing
+    background next to the white outline leaks into the gaps (~15% of the peaks) and columns of
+    thin glyphs (もー!…!?) are as faint as that. Instead: the column pitch is the first peak of the
+    profile's autocorrelation, and the cuts are its local minima (one per pitch), kept only when
+    they are deep valleys and the columns they make are about one pitch wide."""
+    x1, y1 = int(max(0, box[0])), int(max(0, box[1]))
+    x2, y2 = int(min(img.width, box[2])), int(min(img.height, box[3]))
+    w, h = x2 - x1, y2 - y1
+    if w < 3 * COL_MIN_PITCH or h < w:  # vertical text blocks of several columns are portrait
+        return None
+    a = np.asarray(img.crop((x1, y1, x2, y2)).convert("RGB")).astype(np.int16)
+    mx, mn = a.max(-1), a.min(-1)
+    white = mn >= WHITE_MIN
+    near_white = _dilate(white, PAIR_RADIUS)
+    mask = (mx - mn >= SAT_MIN) & ~white & (mx >= 60) & near_white   # tinted lettering
+    if mask.mean() < 0.005:
+        mask = (mx < DARK_MAX) & near_white                          # black text on white
+        if mask.mean() < 0.005:
+            return None
+    prof = np.convolve(mask.sum(0).astype(float), np.ones(COL_SMOOTH) / COL_SMOOTH, mode="same")
+    x = prof - prof.mean()
+    ac = np.correlate(x, x, "full")[w - 1:]
+    if ac[0] <= 0:
+        return None
+    ac /= ac[0]
+    pitch = next((l for l in range(COL_MIN_PITCH, w // 2)
+                  if ac[l] > ac[l - 1] and ac[l] >= ac[l + 1] and ac[l] >= COL_MIN_AC), None)
+    if pitch is None:
+        return None
+    r = int(0.3 * pitch)
+    cuts: list[int] = []
+    for i in range(r, w - r):
+        if prof[i] == prof[i - r:i + r + 1].min() and (not cuts or i - cuts[-1] > r):
+            cuts.append(i)
+    if not cuts:
+        return None
+    bounds = [0] + cuts + [w]
+    for k, c in enumerate(cuts, 1):  # deep valleys only
+        if prof[c] >= COL_VALLEY * min(prof[bounds[k - 1]:c].max(), prof[c:bounds[k + 1]].max()):
+            return None
+    widths = np.diff(bounds) / pitch
+    if any(not COL_WIDTH[0] <= v <= COL_WIDTH[1] for v in widths[1:-1]) or max(widths[0], widths[-1]) > 2.0:
+        return None
+    lens = []
+    for lo, hi in zip(bounds[:-1], bounds[1:]):
+        rows = np.where(mask[:, lo:hi].any(1))[0]
+        lens.append(rows[-1] - rows[0] + 1 if len(rows) else 0)
+    if np.median(lens) < COL_MIN_LEN * pitch:
+        return None
+    return [(x1 + lo, x1 + hi) for lo, hi in zip(bounds[:-1], bounds[1:])][::-1]
