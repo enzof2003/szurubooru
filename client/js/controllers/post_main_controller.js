@@ -12,10 +12,14 @@ const PostMainView = require("../views/post_main_view.js");
 const BasePostController = require("./base_post_controller.js");
 const EmptyView = require("../views/empty_view.js");
 const PoolNavigatorListControl = require("../controls/pool_navigator_list_control.js");
+const postPreloader = require("../util/post_preloader.js");
 
 class PostMainController extends BasePostController {
     constructor(ctx, editMode) {
         super(ctx);
+
+        // stop preloading the old post's neighbours: the new post comes first
+        postPreloader.cancel();
 
         let parameters = ctx.parameters;
         Promise.all([
@@ -54,16 +58,19 @@ class PostMainController extends BasePostController {
                     });
                 }
 
+                const prevPostId = aroundPool
+                    ? (aroundPool.previousPost ? aroundPool.previousPost.id : null)
+                    : (aroundResponse.prev ? aroundResponse.prev.id : null);
+                const nextPostId = aroundPool
+                    ? (aroundPool.nextPost ? aroundPool.nextPost.id : null)
+                    : (aroundResponse.next ? aroundResponse.next.id : null);
+
                 this._post = post;
                 this._view = new PostMainView({
                     post: post,
                     editMode: editMode,
-                    prevPostId: aroundPool
-                        ? (aroundPool.previousPost ? aroundPool.previousPost.id : null)
-                        : (aroundResponse.prev ? aroundResponse.prev.id : null),
-                    nextPostId: aroundPool
-                        ? (aroundPool.nextPost ? aroundPool.nextPost.id : null)
-                        : (aroundResponse.next ? aroundResponse.next.id : null),
+                    prevPostId: prevPostId,
+                    nextPostId: nextPostId,
                     canEditPosts: api.hasPrivilege("posts:edit"),
                     canDeletePosts: api.hasPrivilege("posts:delete"),
                     canFeaturePosts: api.hasPrivilege("posts:feature"),
@@ -77,6 +84,15 @@ class PostMainController extends BasePostController {
                     canViewPools: api.hasPrivilege("pools:view"),
                     parameters: parameters,
                 });
+
+                postPreloader.start(
+                    document.querySelector(
+                        "#content-holder .post-container .post-content"
+                    ),
+                    prevPostId,
+                    nextPostId,
+                    parameters ? parameters.query : null
+                );
 
                 if (this._view.sidebarControl) {
                     this._view.sidebarControl.addEventListener(

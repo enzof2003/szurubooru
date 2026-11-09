@@ -42,6 +42,9 @@ class SettingsView extends events.EventTarget {
                     showNotes: this._find("show-notes").checked,
                     tagSuggestions: this._find("tag-suggestions").checked,
                     autoplayVideos: this._find("autoplay-videos").checked,
+                    preloadNeighbours: this._find("preload-neighbours")
+                        .checked,
+                    preloadMaxFileSizeMB: this._find("preload-max-size").value,
                     postsPerPage: this._find("posts-per-page").value,
                     tagUnderscoresAsSpaces: this._find("underscores-as-spaces")
                         .checked,

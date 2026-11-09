@@ -93,6 +93,26 @@
 
             <li>
                 <%= ctx.makeCheckbox({
+                    text: 'Preload next/previous posts',
+                    name: 'preload-neighbours',
+                    checked: ctx.browsingSettings.preloadNeighbours,
+                }) %>
+                <p class='hint'>Once a post has loaded, quietly fetches its neighbours in the background so arrow-key navigation is instant.</p>
+            </li>
+
+            <li>
+                <%= ctx.makeNumericInput({
+                    text: 'Preload full content up to (MB)',
+                    name: 'preload-max-size',
+                    value: ctx.browsingSettings.preloadMaxFileSizeMB,
+                    min: 0,
+                    max: 500,
+                }) %>
+                <p class='hint'>Larger images, as well as all videos and flash, only get their thumbnail preloaded.</p>
+            </li>
+
+            <li>
+                <%= ctx.makeCheckbox({
                     text: 'Display underscores as spaces',
                     name: 'underscores-as-spaces',
                     checked: ctx.browsingSettings.tagUnderscoresAsSpaces,
