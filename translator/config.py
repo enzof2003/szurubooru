@@ -94,7 +94,7 @@ class Settings:
     ocr_mmproj: Path = field(default_factory=lambda: _path("OCR_MMPROJ", "models/paddleocr-vl/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"))
     ocr_port: int = field(default_factory=lambda: int(os.getenv("OCR_PORT", "8081")))
     ocr_gpu_layers: int = field(default_factory=lambda: int(os.getenv("OCR_GPU_LAYERS", "0")))
-    ocr_max_pixels: int = field(default_factory=lambda: int(os.getenv("OCR_MAX_PIXELS", "0")))  # 0 = no downscale
+    ocr_max_pixels: int = field(default_factory=lambda: int(os.getenv("OCR_MAX_PIXELS", "0")))  # 0 = no cap; see below
     ocr_pad: float = field(default_factory=lambda: float(os.getenv("OCR_PAD", "0.01")))  # crop margin, x longest side
     # Vertical blocks with >= OCR_COLUMN_SPLIT_MIN columns are OCRed OCR_COLUMNS_PER_CALL columns at a
     # time (whole, they lose columns / read them out of order); 0 = always whole.
@@ -106,6 +106,15 @@ class Settings:
     # screentone). 0 disables.
     ocr_upscale_below: float = field(default_factory=lambda: float(os.getenv("OCR_UPSCALE_BELOW", "16")))
     ocr_upscale: float = field(default_factory=lambda: float(os.getenv("OCR_UPSCALE", "3")))
+    # High-resolution scans (the vision encoder's cost grows with the pixels): crops above
+    # OCR_MAX_PIXELS (0 = no cap) are shrunk to that area, unless their glyphs look no bigger than
+    # OCR_DOWNSCALE_PITCH_ABOVE px; column chunks whose measured column pitch is above
+    # OCR_DOWNSCALE_PITCH_ABOVE are downscaled to a pitch of OCR_DOWNSCALE_PITCH_TO (0 = never).
+    # Both off by default, accuracy first (2026-11-09): pitch targets of 48/64/80 px changed the
+    # OCR text of 14207/14212; a 600k cap left normal pages untouched and cut post 28047's
+    # (7500x5500) OCR from 662 s to 286 s, but one of its blocks lost a whole column.
+    ocr_downscale_pitch_above: float = field(default_factory=lambda: float(os.getenv("OCR_DOWNSCALE_PITCH_ABOVE", "96")))
+    ocr_downscale_pitch_to: float = field(default_factory=lambda: float(os.getenv("OCR_DOWNSCALE_PITCH_TO", "0")))
 
     # ---- LLM (any OpenAI-compatible /chat/completions endpoint)
     llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080/v1").rstrip("/"))

@@ -147,5 +147,65 @@ class CleanTextTest(unittest.TestCase):
         self.assertEqual(pipeline.clean_text(""), "")
 
 
+class PrepareTest(unittest.TestCase):
+    """PaddleOcr._prepare: crops resized for the OCR model (synthetic black-square 'glyphs')."""
+
+    @staticmethod
+    def page(glyph: int, n: int = 6) -> Image.Image:
+        from PIL import ImageDraw, ImageFilter
+        step = round(glyph * 1.4)
+        img = Image.new("RGB", (step * n + glyph, step * n + glyph), "white")
+        d = ImageDraw.Draw(img)
+        for i in range(n):
+            for j in range(n):
+                x, y = glyph // 2 + i * step, glyph // 2 + j * step
+                d.rectangle((x, y, x + glyph - 1, y + glyph - 1), "black")
+        return img.filter(ImageFilter.GaussianBlur(0.7))  # 2 grey levels only: Otsu finds no ink
+
+    @staticmethod
+    def ocr(**kw) -> pipeline.PaddleOcr:
+        s = dict(ocr_upscale_below=16, ocr_upscale=3, ocr_downscale_pitch_above=56,
+                 ocr_downscale_pitch_to=48, ocr_max_pixels=300_000)
+        return pipeline.PaddleOcr(SimpleNamespace(**{**s, **kw}), None)
+
+    def test_large_pitch_downscaled(self):
+        ocr, crop = self.ocr(ocr_max_pixels=0), self.page(100)
+        out = ocr._prepare(crop, pitch=140)
+        self.assertAlmostEqual(out.width, crop.width * 48 / 140, delta=1)
+        self.assertAlmostEqual(ocr.last_scale, 48 / 140, delta=0.002)
+
+    def test_normal_pitch_untouched(self):
+        for pitch in (20, 40, 56):
+            with self.subTest(pitch=pitch):
+                ocr, crop = self.ocr(), self.page(30, n=4)
+                self.assertEqual(ocr._prepare(crop, pitch=pitch).size, crop.size)
+                self.assertIsNone(ocr.last_scale)
+
+    def test_max_pixels_large_glyphs(self):
+        ocr, crop = self.ocr(), self.page(100)  # 940 x 940
+        w, h = ocr._prepare(crop).size
+        self.assertLessEqual(w * h, 300_000 * 1.01)
+        self.assertEqual(w, h)
+        # no glyph estimate at all (blank): capped too
+        w, h = self.ocr()._prepare(Image.new("RGB", (3000, 2000), "white")).size
+        self.assertLessEqual(w * h, 300_000 * 1.01)
+        self.assertAlmostEqual(w / h, 1.5, delta=0.01)
+
+    def test_max_pixels_spares_normal_glyphs(self):
+        ocr, crop = self.ocr(), self.page(30, n=20)  # 870 x 870 of 30 px glyphs: over the cap
+        self.assertGreater(crop.width * crop.height, 300_000)
+        self.assertEqual(ocr._prepare(crop).size, crop.size)
+        self.assertIsNone(ocr.last_scale)
+
+    def test_small_glyphs_still_upscaled(self):
+        ocr, crop = self.ocr(), self.page(10)
+        self.assertEqual(ocr._prepare(crop).size, (crop.width * 3, crop.height * 3))
+        self.assertEqual(ocr.last_scale, 3)
+
+    def test_disabled(self):
+        ocr, crop = self.ocr(ocr_downscale_pitch_above=0, ocr_max_pixels=0), self.page(100)
+        self.assertEqual(ocr._prepare(crop, pitch=140).size, crop.size)
+
+
 if __name__ == "__main__":
     unittest.main()

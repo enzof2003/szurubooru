@@ -345,7 +345,7 @@ class PaddleOcr:
     def __init__(self, s: config.Settings, server: OcrServer | None):
         self.s, self.server = s, server
         self.session = requests.Session()
-        self.last_upscale: float | None = None  # factor applied to the last crop (for meta)
+        self.last_scale: float | None = None  # resize factor applied to the last crop (for meta)
 
     def _url_key(self):
         if self.server:
@@ -354,20 +354,41 @@ class PaddleOcr:
             return self.server.base_url, self.server.api_key
         return self.s.ocr_base_url, self.s.ocr_api_key
 
-    def _prepare(self, crop: Image.Image) -> Image.Image:
+    def _prepare(self, crop: Image.Image, pitch: float | None = None) -> Image.Image:
+        """Resize a crop for the OCR model. `pitch`: measured column pitch (px) of a column chunk.
+
+        Small glyphs are upscaled (low-resolution scans). Large ones are downscaled: the vision
+        encoder's cost grows faster than linearly with the pixels (post 28047, 7500x5500: ~100 px
+        glyphs, 50-120 s per block). glyph_size() can't drive that: it assumes dark ink, and on
+        coloured lettering over a busy background it returns about the crop's width. So only a
+        measured column pitch scales a crop down to glyph size, and otherwise OCR_MAX_PIXELS caps
+        the area, unless glyph_size() saw normal or small glyphs (it errs high, never low)."""
         w, h = crop.size
-        g = glyph_size(crop) if self.s.ocr_upscale_below > 0 and self.s.ocr_upscale > 1 else None
-        self.last_upscale = None
-        if g is not None and g < self.s.ocr_upscale_below:
+        s = self.s
+        g = glyph_size(crop)
+        self.last_scale = None
+        if g is not None and s.ocr_upscale > 1 and g < s.ocr_upscale_below:
             # Tested on post 3180 (~9 px glyphs, AVIF): plain upscaling changed nothing, a blur
             # after the upscale smooths compression noise / screentone, the unsharp mask restores edges.
-            f = self.last_upscale = self.s.ocr_upscale
+            f = self.last_scale = s.ocr_upscale
             crop = crop.resize((round(w * f), round(h * f)), Image.LANCZOS)
             crop = crop.filter(ImageFilter.GaussianBlur(f / 3)).filter(ImageFilter.UnsharpMask(1.5, 80, 2))
-            w, h = crop.size
-        if self.s.ocr_max_pixels and w * h > self.s.ocr_max_pixels:
-            f = (self.s.ocr_max_pixels / (w * h)) ** 0.5
+            return self._min_size(crop)
+        if pitch and s.ocr_downscale_pitch_to > 0 and 0 < s.ocr_downscale_pitch_above and pitch > max(s.ocr_downscale_pitch_above, s.ocr_downscale_pitch_to):
+            f = s.ocr_downscale_pitch_to / pitch
             crop = crop.resize((max(1, round(w * f)), max(1, round(h * f))), Image.LANCZOS)
+            self.last_scale = f
+            w, h = crop.size
+        if s.ocr_max_pixels and w * h > s.ocr_max_pixels and (g is None or g > s.ocr_downscale_pitch_above):
+            f = (s.ocr_max_pixels / (w * h)) ** 0.5
+            crop = crop.resize((max(1, round(w * f)), max(1, round(h * f))), Image.LANCZOS)
+            self.last_scale = (self.last_scale or 1) * f
+        if self.last_scale:
+            self.last_scale = round(self.last_scale, 3)
+        return self._min_size(crop)
+
+    @staticmethod
+    def _min_size(crop: Image.Image) -> Image.Image:
         if min(crop.size) < 32:  # tiny crops: give the vision encoder at least ~one patch row
             f = 32 / min(crop.size)
             crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
@@ -382,7 +403,7 @@ class PaddleOcr:
         if glyph:
             max_tokens = min(max_tokens, round(2 * crop.width * crop.height / (glyph * glyph)) + 32)
         buf = io.BytesIO()
-        self._prepare(crop).save(buf, format="PNG")
+        self._prepare(crop, glyph).save(buf, format="PNG")
         body = {
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()}},
@@ -942,8 +963,8 @@ class Pipeline:
             for n in notes:
                 t1 = time.perf_counter()
                 self._ocr_note(img, n)
-                if self.ocr.last_upscale:
-                    n["upscale"] = self.ocr.last_upscale
+                if self.ocr.last_scale:
+                    n["upscale" if self.ocr.last_scale > 1 else "downscale"] = self.ocr.last_scale
                 per_note.append(round((time.perf_counter() - t1) * 1000, 1))
             t["ocr_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             t["ocr_ms_per_note"] = per_note
@@ -1035,7 +1056,7 @@ class Pipeline:
                 "notes": [{"kind": n["kind"], "text_bbox_px": geom(n["text_box"])["bbox_px"],
                            "parts": len(n["parts"]), "ocr_tokens": n["ocr_usage"].get("prompt_tokens"),
                            **({"origin": n["origin"]} if "origin" in n else {}),
-                           **({"upscale": n["upscale"]} if "upscale" in n else {}),
+                           **{k: n[k] for k in ("upscale", "downscale") if k in n},
                            # [columns found, OCR calls] for a block read in column chunks
                            **({"ocr_chunks": n["ocr_chunks"]} if "ocr_chunks" in n else {}),
                            **({"ocr_truncated": True} if n["ocr_usage"].get("truncated") else {}),
