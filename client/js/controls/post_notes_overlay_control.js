@@ -637,7 +637,9 @@ class DrawingPolygonState extends ActiveState {
 }
 
 class PostNotesOverlayControl extends events.EventTarget {
-    constructor(hostNode, post) {
+    // options.clickThroughText: the hover text box lets clicks through to
+    // whatever is under it (pool gallery: the click opens the post).
+    constructor(hostNode, post, options) {
         super();
         this._post = post;
         this._hostNode = hostNode;
@@ -675,6 +677,9 @@ class PostNotesOverlayControl extends events.EventTarget {
         wrapperNode.classList.add("wrapper");
         this._textNode = document.createElement("div");
         this._textNode.classList.add("note-text");
+        if (options && options.clickThroughText) {
+            this._textNode.classList.add("click-through");
+        }
         this._textNode.appendChild(wrapperNode);
         this._textNode.addEventListener("mouseleave", (e) =>
             this._evtNoteMouseLeave(e)
@@ -820,8 +825,13 @@ class PostNotesOverlayControl extends events.EventTarget {
         const node = document.createElementNS(svgNS, "ellipse");
         node.setAttribute("cx", point.x);
         node.setAttribute("cy", point.y);
-        node.setAttribute("rx", circleSize / 2 / this.boundingBox.width);
-        node.setAttribute("ry", circleSize / 2 / this.boundingBox.height);
+        // the host may not be laid out yet (lazy pool gallery images): the
+        // handles only show while editing, so leave them unsized then
+        const box = this.boundingBox;
+        if (box.width && box.height) {
+            node.setAttribute("rx", circleSize / 2 / box.width);
+            node.setAttribute("ry", circleSize / 2 / box.height);
+        }
         point.edgeNode = node;
         groupNode.appendChild(node);
     }

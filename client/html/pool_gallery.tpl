@@ -9,6 +9,14 @@
         ) %>
     </h1>
 
+    <% if (ctx.posts.some(function(p) { return p.type === 'image' && (p.notes || []).length; })) { %>
+        <div class="gallery-notes-toggle">
+            <%= ctx.makeCheckbox({
+                text: 'Show notes',
+                name: 'show-notes',
+            }) %>
+        </div>
+    <% } %>
 
     <div class="gallery-grid">
         <% ctx.posts.forEach(function(post, index) { %>
@@ -17,7 +25,17 @@
                  data-post-id="<%- post.id %>"
                  data-index="<%- index %>">
 
-                <% if (['image', 'animation'].includes(post.type)) { %>
+                <% if (post.type === 'image' && (post.notes || []).length) { %>
+
+                    <div class="gallery-media-notes">
+                        <img class="resize-listener gallery-media"
+                             alt=""
+                             src="/<%- post.contentUrl %>"
+                             loading="lazy">
+                        <div class="post-overlay"></div>
+                    </div>
+
+                <% } else if (['image', 'animation'].includes(post.type)) { %>
 
                     <img class="resize-listener gallery-media"
                          alt=""

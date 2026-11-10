@@ -2,7 +2,12 @@
 
 const events = require("../events.js");
 const views = require("../util/views.js");
+const settings = require("../models/settings.js");
+const Post = require("../models/post.js");
+const PostNotesOverlayControl = require("../controls/post_notes_overlay_control.js");
 const template = views.getTemplate("pool-gallery");
+
+const SHOW_NOTES_STORAGE_KEY = "poolGalleryShowNotes";
 
 class PoolGalleryView extends events.EventTarget {
     constructor(ctx) {
@@ -23,6 +28,60 @@ class PoolGalleryView extends events.EventTarget {
         this._items = Array.from(document.querySelectorAll(".gallery-item"));
         this._setupKeyboardNavigation();
         this._setupClickNavigation();
+        this._setupNotes();
+    }
+
+    // Image posts with notes get the post view's notes overlay over their
+    // picture (markup in pool_gallery.tpl). The overlay ignores clicks and the
+    // note boxes' clicks bubble to .gallery-item, so a click still opens the
+    // post; hovering a box shows its text.
+    _setupNotes() {
+        const postsById = new Map(this._posts.map((p) => [String(p.id), p]));
+        this._notesOverlays = this._items
+            .filter((item) => item.querySelector(".gallery-media-notes"))
+            .map(
+                (item) =>
+                    new PostNotesOverlayControl(
+                        item.querySelector(".post-overlay"),
+                        Post.fromResponse(postsById.get(item.dataset.postId)),
+                        { clickThroughText: true }
+                    )
+            );
+
+        const checkbox = this._hostNode.querySelector(
+            ".gallery-notes-toggle input"
+        );
+        if (!checkbox) {
+            return;
+        }
+        let visible = settings.get().showNotes;
+        try {
+            const stored = localStorage.getItem(SHOW_NOTES_STORAGE_KEY);
+            if (stored !== null) {
+                visible = stored === "true";
+            }
+        } catch (e) {
+            // storage unavailable: fall back to the "Show notes" setting
+        }
+        checkbox.checked = visible;
+        this._setNotesVisible(visible);
+        checkbox.addEventListener("change", () => {
+            this._setNotesVisible(checkbox.checked);
+            try {
+                localStorage.setItem(
+                    SHOW_NOTES_STORAGE_KEY,
+                    String(checkbox.checked)
+                );
+            } catch (e) {
+                // not remembered, still applied for this page
+            }
+        });
+    }
+
+    _setNotesVisible(visible) {
+        for (let overlay of this._notesOverlays) {
+            overlay.setNotesVisible(visible);
+        }
     }
 
     _setupKeyboardNavigation() {
