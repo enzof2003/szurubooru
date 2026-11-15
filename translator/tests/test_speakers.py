@@ -386,6 +386,17 @@ class ConfidenceTest(unittest.TestCase):
         self.assertIsNone(pipeline.ocr_confidence([]))
 
 
+class ParseTest(unittest.TestCase):
+    def test_leaked_json_closers_stripped(self):
+        content = '{"translations": [{"id": 0, "text": "Hi"}, {"id": 8, "text": "“I... I don\'t even want something like this...!”}]}}}]}]}"}]}'
+        self.assertEqual(pipeline.Translator._parse(content),
+                         {0: "Hi", 8: "“I... I don't even want something like this...!”"})
+
+    def test_brackets_kept(self):
+        for text in ("Ahh [panting]", "[[sfx]]", "Ehehe♥", "“{weird}” but fine.", ""):
+            self.assertEqual(pipeline._strip_json_tail(text), text)
+
+
 class GarbleCopyTest(unittest.TestCase):
     def test_same_as_server(self):
         # translator/ocr_garble.py is a copy of the server's check (separate images): keep in sync

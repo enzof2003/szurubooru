@@ -785,6 +785,18 @@ class LlmError(RuntimeError):
     pass
 
 
+# JSON closers the LLM sometimes leaks into the end of a "text" value (25638: '...!”}]}}}]}]}').
+JSON_TAIL = re.compile(r"[\s}\]]*$")
+
+
+def _strip_json_tail(text: str) -> str:
+    """A translation with its leaked JSON closers removed: a trailing run of } and ] (with
+    spaces) that holds at least one }. A lone ] or ]] (a bracketed aside) is kept."""
+    text = text.strip()
+    tail = JSON_TAIL.search(text).group()
+    return text[:len(text) - len(tail)].rstrip() if "}" in tail else text
+
+
 class Translator:
     def __init__(self, s: config.Settings):
         self.s = s
@@ -897,7 +909,7 @@ class Translator:
         for item in items:
             try:
                 if item["text"] is not None:  # null would otherwise become the string "None"
-                    out[int(item["id"])] = str(item["text"]).strip()
+                    out[int(item["id"])] = _strip_json_tail(str(item["text"]))
             except (KeyError, TypeError, ValueError):
                 continue
         return out
