@@ -140,3 +140,78 @@ def test_update_post_content_rejects_unconvertible_mov(monkeypatch):
     )
     with pytest.raises(posts.InvalidPostContentError):
         posts.update_post_content(SimpleNamespace(post_id=1), mov)
+
+
+def _enable(monkeypatch, **mov):
+    monkeypatch.setitem(
+        config.config, "convert", {"gif": {}, "mov": {"to_mp4": True, **mov}}
+    )
+
+
+def test_video_pixel_frames():
+    mov = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"], size="64x48")
+    # 64 * 48 px, 10 fps, ~1 s
+    assert images.Image(mov).video_pixel_frames() == pytest.approx(
+        64 * 48 * 10, rel=0.1
+    )
+
+
+def test_reencode_rejected_when_estimate_exceeds_limit(monkeypatch):
+    _enable(monkeypatch, max_encode_seconds=480)
+    # pretend the encoder does 1 px-frame/s: 64x48x10 -> ~8.5 hours
+    monkeypatch.setattr(posts, "MOV_REENCODE_PIXEL_FRAMES_PER_SECOND", 1)
+    mov = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"])
+
+    def must_not_encode(_self):
+        raise AssertionError("encoder should not run")
+
+    monkeypatch.setattr(images.Image, "mov_to_mp4", must_not_encode)
+    with pytest.raises(posts.InvalidPostContentError) as exc:
+        posts.convert_mov_to_mp4_if_enabled(mov)
+    assert "Please convert it to MP4" in str(exc.value)
+
+
+def test_remux_never_rejected_by_estimate(monkeypatch):
+    _enable(monkeypatch, max_encode_seconds=1)
+    monkeypatch.setattr(posts, "MOV_REENCODE_PIXEL_FRAMES_PER_SECOND", 1)
+    mov = _make_mov(
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p"], ["-c:a", "aac"]
+    )
+    _assert_browser_mp4(posts.convert_mov_to_mp4_if_enabled(mov))
+
+
+def test_reencode_allowed_under_limit(monkeypatch):
+    _enable(monkeypatch, max_encode_seconds=480)
+    mov = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"])
+    _assert_browser_mp4(posts.convert_mov_to_mp4_if_enabled(mov))
+
+
+def test_non_mov_and_missing_config_pass_through(monkeypatch):
+    mov = _make_mov(
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p"], ["-c:a", "aac"]
+    )
+    monkeypatch.setattr(config, "config", {})
+    assert posts.convert_mov_to_mp4_if_enabled(mov) == mov
+    _enable(monkeypatch)
+    png = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+    assert posts.convert_mov_to_mp4_if_enabled(png) == png
+
+
+def test_upload_api_converts_mov(monkeypatch):
+    from szurubooru.api import upload_api
+
+    _enable(monkeypatch)
+    mov = _make_mov(
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p"], ["-c:a", "aac"]
+    )
+    saved = {}
+    monkeypatch.setattr(upload_api.auth, "verify_privilege", lambda *a: None)
+    monkeypatch.setattr(upload_api.auth, "has_privilege", lambda *a: False)
+    monkeypatch.setattr(
+        upload_api.file_uploads,
+        "save",
+        lambda content: saved.setdefault("content", content) and "tok",
+    )
+    ctx = SimpleNamespace(user=None, get_file=lambda *a, **k: mov)
+    assert upload_api.create_temporary_file(ctx) == {"token": "tok"}
+    _assert_browser_mp4(saved["content"])

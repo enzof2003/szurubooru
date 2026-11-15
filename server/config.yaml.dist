@@ -32,6 +32,10 @@ convert:
    # (H.264 4:2:0 is remuxed losslessly; anything else re-encoded with x264)
    mov:
      to_mp4: true
+     # reject MOVs whose estimated re-encode time exceeds this (seconds), with
+     # a "please convert to MP4 first" message; must stay below the proxy
+     # timeouts (600 s). Remuxes (H.264 4:2:0) are fast and never rejected.
+     max_encode_seconds: 480
 
 # allow posts to be uploaded even if some image processing errors occur
 allow_broken_uploads: false

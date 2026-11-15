@@ -45,6 +45,11 @@ http {
 
             client_max_body_size 5368709120;
 
+            # MOV uploads are converted to MP4 inside the request (up to
+            # convert.mov.max_encode_seconds = 480 s); match the host nginx.
+            proxy_read_timeout 600s;
+            proxy_send_timeout 600s;
+
             gzip on;
             gzip_comp_level 3;
             gzip_min_length 20;

@@ -1,5 +1,6 @@
 import hmac
 import logging
+import math
 from collections import namedtuple
 from datetime import datetime
 from itertools import tee, chain, islice
@@ -615,22 +616,52 @@ def update_all_md5_checksums() -> None:
             logger.exception(ex)
 
 
+# libx264 -preset veryfast throughput measured on this server (6 cores):
+# a 60 s 1080p60 HEVC clip (1920*1080*3600 px-frames) re-encoded in 54.2 s.
+MOV_REENCODE_PIXEL_FRAMES_PER_SECOND = 1920 * 1080 * 3600 / 54.2
+
+
+def convert_mov_to_mp4_if_enabled(content: bytes) -> bytes:
+    """
+    Browsers can't play most .mov files, so store them as MP4 instead.
+    Called both when the file is uploaded (/uploads, which bypasses
+    Cloudflare's 100 s limit) and when a post's content is set, so content
+    that is already MP4 passes straight through.
+    """
+    mov_config = config.config.get("convert", {}).get("mov", {})
+    if not mov_config.get("to_mp4", False):
+        return content
+    if mime.get_mime_type(content) != "video/quicktime":
+        return content
+    try:
+        image = images.Image(content)
+        if image.mov_needs_video_reencode():
+            max_seconds = mov_config.get("max_encode_seconds", 480)
+            pixel_frames = image.video_pixel_frames()
+            if pixel_frames is not None:
+                estimate = pixel_frames / MOV_REENCODE_PIXEL_FRAMES_PER_SECOND
+                if max_seconds and estimate > max_seconds:
+                    raise InvalidPostContentError(
+                        "This MOV video would take about %d minutes to "
+                        "convert for browser playback (limit: %d). "
+                        "Please convert it to MP4 (H.264) first."
+                        % (math.ceil(estimate / 60), max_seconds // 60)
+                    )
+        return image.mov_to_mp4()
+    except errors.ProcessingError as ex:
+        logger.exception(ex)
+        raise InvalidPostContentError(
+            "Unable to convert this MOV video to MP4. "
+            "Please convert it to MP4 (H.264) first."
+        )
+
+
 def update_post_content(post: model.Post, content: Optional[bytes]) -> None:
     assert post
     if not content:
         raise InvalidPostContentError("Post content missing.")
 
-    if mime.get_mime_type(content) == "video/quicktime" and config.config[
-        "convert"
-    ].get("mov", {}).get("to_mp4", False):
-        # Browsers can't play most .mov files; store them as MP4 instead.
-        try:
-            content = images.Image(content).mov_to_mp4()
-        except errors.ProcessingError as ex:
-            logger.exception(ex)
-            raise InvalidPostContentError(
-                "Unable to convert MOV video to MP4."
-            )
+    content = convert_mov_to_mp4_if_enabled(content)
 
     update_signature = False
     post.mime_type = mime.get_mime_type(content)

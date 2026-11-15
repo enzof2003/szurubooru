@@ -231,6 +231,31 @@ class Image:
             streams[0].get("pix_fmt", ""),
         )
 
+    def mov_needs_video_reencode(self, video: Optional[str] = None) -> bool:
+        """Only H.264 4:2:0 plays everywhere; anything else is re-encoded."""
+        if video is None:
+            video = self._first_stream_codec("v:0")
+        return video != "h264/yuv420p"
+
+    def video_pixel_frames(self) -> Optional[float]:
+        """
+        width * height * frame count of the first video stream, estimated
+        from duration and average frame rate; None if they're unknown.
+        """
+        try:
+            stream = self.info["streams"][0]
+            duration = float(
+                self.info["format"].get("duration") or stream["duration"]
+            )
+            num, den = stream["avg_frame_rate"].split("/")
+            fps = float(num) / float(den)
+            pixels = int(stream["width"]) * int(stream["height"])
+        except (KeyError, IndexError, ValueError, ZeroDivisionError):
+            return None
+        if duration <= 0 or fps <= 0 or pixels <= 0:
+            return None
+        return pixels * fps * duration
+
     def mov_to_mp4(self) -> bytes:
         """
         Turn a QuickTime file into a browser-playable MP4.
@@ -241,7 +266,7 @@ class Image:
         """
         video = self._first_stream_codec("v:0")
         audio = self._first_stream_codec("a:0")
-        copy_video = video == "h264/yuv420p"
+        copy_video = not self.mov_needs_video_reencode(video)
         copy_audio = audio is None or audio.startswith("aac/")
         with util.create_temp_file_path(suffix=".mp4") as mp4_temp_path:
             args = ["-i", "{path}", "-map", "0:v:0", "-map", "0:a:0?"]
