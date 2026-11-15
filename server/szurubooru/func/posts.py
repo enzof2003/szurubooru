@@ -620,6 +620,18 @@ def update_post_content(post: model.Post, content: Optional[bytes]) -> None:
     if not content:
         raise InvalidPostContentError("Post content missing.")
 
+    if mime.get_mime_type(content) == "video/quicktime" and config.config[
+        "convert"
+    ].get("mov", {}).get("to_mp4", False):
+        # Browsers can't play most .mov files; store them as MP4 instead.
+        try:
+            content = images.Image(content).mov_to_mp4()
+        except errors.ProcessingError as ex:
+            logger.exception(ex)
+            raise InvalidPostContentError(
+                "Unable to convert MOV video to MP4."
+            )
+
     update_signature = False
     post.mime_type = mime.get_mime_type(content)
     if mime.is_flash(post.mime_type):

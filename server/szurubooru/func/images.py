@@ -5,7 +5,7 @@ import re
 import shlex
 import subprocess
 from io import BytesIO
-from typing import List
+from typing import List, Optional
 
 import HeifImagePlugin
 import pillow_avif
@@ -205,6 +205,81 @@ class Image:
 
             self._execute(args + ["-y", mp4_temp_path])
 
+            with open(mp4_temp_path, "rb") as mp4_temp:
+                return mp4_temp.read()
+
+    def _first_stream_codec(self, selector: str) -> Optional[str]:
+        streams = json.loads(
+            self._execute(
+                [
+                    "-i",
+                    "{path}",
+                    "-of",
+                    "json",
+                    "-select_streams",
+                    selector,
+                    "-show_entries",
+                    "stream=codec_name,pix_fmt",
+                ],
+                program="ffprobe",
+            ).decode("utf-8")
+        ).get("streams", [])
+        if not streams:
+            return None
+        return "%s/%s" % (
+            streams[0].get("codec_name"),
+            streams[0].get("pix_fmt", ""),
+        )
+
+    def mov_to_mp4(self) -> bytes:
+        """
+        Turn a QuickTime file into a browser-playable MP4.
+        H.264 4:2:0 video is copied as-is (remux); anything else is
+        re-encoded with libx264. AAC audio is copied, other audio is
+        re-encoded to AAC. Only the first video and audio streams are
+        kept; QuickTime timecode/data tracks are dropped.
+        """
+        video = self._first_stream_codec("v:0")
+        audio = self._first_stream_codec("a:0")
+        copy_video = video == "h264/yuv420p"
+        copy_audio = audio is None or audio.startswith("aac/")
+        with util.create_temp_file_path(suffix=".mp4") as mp4_temp_path:
+            args = ["-i", "{path}", "-map", "0:v:0", "-map", "0:a:0?"]
+            if copy_video:
+                args += ["-c:v", "copy"]
+            else:
+                args += [
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    "-pix_fmt",
+                    "yuv420p",
+                    # yuv420p needs even dimensions
+                    "-vf",
+                    "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                ]
+            args += ["-c:a", "copy"] if copy_audio else ["-c:a", "aac"]
+            args += [
+                "-write_tmcd",
+                "0",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                "-y",
+                mp4_temp_path,
+            ]
+            logger.info(
+                "Converting MOV to MP4 (video=%s %s, audio=%s %s)",
+                video,
+                "copy" if copy_video else "re-encode",
+                audio,
+                "copy" if copy_audio else "re-encode",
+            )
+            self._execute(args)
             with open(mp4_temp_path, "rb") as mp4_temp:
                 return mp4_temp.read()
 

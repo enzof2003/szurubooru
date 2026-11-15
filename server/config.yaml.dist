@@ -28,6 +28,10 @@ convert:
    gif:
      to_webm: false
      to_mp4: false
+   # store uploaded QuickTime (.mov) videos as MP4 so browsers can play them
+   # (H.264 4:2:0 is remuxed losslessly; anything else re-encoded with x264)
+   mov:
+     to_mp4: true
 
 # allow posts to be uploaded even if some image processing errors occur
 allow_broken_uploads: false
