@@ -202,6 +202,9 @@ class ChunkedOcrTest(unittest.TestCase):
         self.assertNotIn("ocr_chunks", note)
 
 
+READ = "あいうえお" * 6
+
+
 class LoopOcr:
     """Loops (hits max_tokens) on crops narrower than `loop_below` px, except at half size when
     `half_ok`; answers with the crop's page x range otherwise."""
@@ -214,7 +217,8 @@ class LoopOcr:
         half = crop.width < 0.75 * (hi - lo)
         self.calls.append("half" if half else crop.info["x"])
         if (half and self.half_ok) or (not half and crop.width >= self.loop_below):
-            return "あ" + ("" if half else str(crop.info["x"])), {"completion_tokens": 5}
+            # a read of plausible length (a lone column read short is a suspect read: P1)
+            return READ + ("" if half else str(crop.info["x"])), {"completion_tokens": 5}
         return "ぁ" * 50, {"completion_tokens": 512, "truncated": True}
 
 
@@ -235,13 +239,13 @@ class LoopFallbackTest(unittest.TestCase):
 
         img.crop = crop
         pl = object.__new__(pipeline.Pipeline)
-        pl.s = SimpleNamespace(ocr_pad=0.01, ocr_columns_per_call=3, ocr_column_split_min=5)
+        pl.s = SimpleNamespace(ocr_pad=0.01, ocr_columns_per_call=3, ocr_column_split_min=5, ocr_min_conf=-99)
         return img, notes, pl
 
     def run_all(self, pl, img, notes):
         for n in notes:
             pl._ocr_note(img, n)
-        return pl._merge_looping_groups(img, notes)
+        return pl._fallback_groups(img, notes)
 
     def test_retry_half_size(self):
         img, notes, pl = self.notes()
@@ -249,7 +253,7 @@ class LoopFallbackTest(unittest.TestCase):
         out = self.run_all(pl, img, notes)
         self.assertEqual(len(out), 4)
         singles = [n for n in out if len(n["parts"]) == 1]
-        self.assertTrue(singles and all(n["ocr_retry"] == "0.5x" and n["source"] == "あ" for n in singles))
+        self.assertTrue(singles and all(n["ocr_retry"] == "0.5x" and n["source"] == READ for n in singles))
         self.assertTrue(all(not n["ocr_usage"].get("truncated") for n in out))
 
     def test_loop_that_stops_by_itself(self):

@@ -100,6 +100,9 @@ class Settings:
     # time (whole, they lose columns / read them out of order); 0 = always whole.
     ocr_columns_per_call: int = field(default_factory=lambda: int(os.getenv("OCR_COLUMNS_PER_CALL", "3")))
     ocr_column_split_min: int = field(default_factory=lambda: int(os.getenv("OCR_COLUMN_SPLIT_MIN", "5")))
+    # lone colour-group column: a read below this mean letter-token log-prob is suspect (lone-column
+    # fallback in Pipeline._fallback_groups); calibrated on the check posts, see translation_errors.md
+    ocr_min_conf: float = field(default_factory=lambda: float(os.getenv("OCR_MIN_CONF", "-99")))
     ocr_timeout: float = field(default_factory=lambda: float(os.getenv("OCR_TIMEOUT", "180")))
     # Low-resolution scans: crops whose estimated glyph size is below OCR_UPSCALE_BELOW px are
     # upscaled OCR_UPSCALE x (Lanczos, then a light blur + unsharp mask against JPEG/AVIF noise and

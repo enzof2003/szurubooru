@@ -33,6 +33,7 @@ from pathlib import Path
 
 import childproc
 import colorsplit
+import ocr_garble
 import config
 
 import numpy as np
@@ -128,6 +129,15 @@ def short_read(text: str, lines: list[list[float]]) -> bool:
     boxes of a vertical colour group; a column holds about length / width glyph cells."""
     cells = sum((b[3] - b[1]) / max(b[2] - b[0], 1.0) for b in lines)
     return cells >= SHORT_READ_MIN_CELLS and _glyphs(text) < SHORT_READ * cells
+
+
+def ocr_confidence(tokens: list[dict]) -> float | None:
+    """Mean log-probability of an OCR read's letter tokens (llama-server "logprobs" content).
+    Tokens with no letter or digit (punctuation, ♥, …, ッ is a letter) are left out: the model is
+    unsure of 「・！！」 and dot counts even on a correct read. None when there is no letter token."""
+    lp = [t["logprob"] for t in tokens
+          if any(unicodedata.category(c)[0] in "LN" for c in t.get("token", ""))]
+    return round(sum(lp) / len(lp), 3) if lp else None
 
 
 def _area(b) -> float:
@@ -434,13 +444,18 @@ class PaddleOcr:
                 {"type": "text", "text": "OCR:"},
             ]}],
             "temperature": 0, "max_tokens": max_tokens, "repeat_penalty": 1.2, "repeat_last_n": 512,
+            "logprobs": True, "top_logprobs": 1,  # read confidence (ocr_confidence); same output
         }
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         r = self.session.post(f"{url}/chat/completions", json=body, headers=headers, timeout=self.s.ocr_timeout)
         r.raise_for_status()
         data = r.json()
-        text = (data["choices"][0]["message"].get("content") or "").replace("️", "").strip()
+        choice = data["choices"][0]
+        text = (choice["message"].get("content") or "").replace("️", "").strip()
         usage = data.get("usage") or {}
+        conf = ocr_confidence((choice.get("logprobs") or {}).get("content") or [])
+        if conf is not None:
+            usage["conf"] = conf
         if usage.get("completion_tokens", 0) >= max_tokens:
             usage["truncated"] = True  # hit the cap: probably a loop (trimmed by clean_text)
         return text, usage
@@ -1058,7 +1073,7 @@ class Pipeline:
                 if self.ocr.last_scale:
                     n["upscale" if self.ocr.last_scale > 1 else "downscale"] = self.ocr.last_scale
                 per_note.append(round((time.perf_counter() - t1) * 1000, 1))
-            notes = self._merge_looping_groups(img, notes)
+            notes = self._fallback_groups(img, notes)
             t["ocr_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             t["ocr_ms_per_note"] = per_note
 
@@ -1070,21 +1085,50 @@ class Pipeline:
                 skipped.append({**n, "cls": "text", "reason": "no_japanese"})
         return kept, skipped, t
 
-    def _merge_looping_groups(self, img: Image.Image, notes: list[dict]) -> list[dict]:
-        """A colour group whose OCR still loops after the retry is merged with its neighbouring
-        group of the same block (the next one in reading order, else the previous) and the pair is
-        read again as one note: complete text beats a speaker split with a truncated turn. The
-        merged note keeps the colour of the group with more lines (ties: the looping one)."""
+    def _suspect(self, n: dict, text: str | None = None, conf: float | None = None) -> str | None:
+        """Why the read of a lone column (a colour group of one column, from a split block) can't
+        be trusted, or None. PaddleOCR-VL is unreliable on a lone narrow column: on 25638 and
+        25694 it returned fluent-looking garbage (「ど…ひろな子しば…いやつ」 for 「いやッ…近づけ
+        ないで…ッ」) that the LLM then translated into made-up lines. `text`/`conf` default to the
+        note's own read."""
+        text = n["source"] if text is None else text
+        conf = n.get("ocr_conf") if conf is None else conf
+        if short_read(text, n["parts"]):
+            return "short"
+        if ocr_garble.garble_reasons(text, n["box"]):
+            return "garble"
+        if conf is not None and conf < self.s.ocr_min_conf:
+            return "low_conf"
+        return None
+
+    def _fallback_groups(self, img: Image.Image, notes: list[dict]) -> list[dict]:
+        """A colour group whose OCR can't be used is read again together with its neighbouring
+        group of the same block (the next one in reading order, else the previous): correct words
+        in the wrong colour beat wrong words in the right colour.
+        - looping read (after the half-size retry): the pair becomes one note.
+        - suspect lone column (_suspect): when the neighbour's own read is found exactly at the
+          start or end of the pair's read, the rest is this column's text and both notes keep
+          their colours ("merged_cut"); otherwise the pair becomes one note ("merged").
+        The merged note keeps the colour of the group with more lines (ties: the failing one). A
+        lone column whose fallback read is still suspect, or that has no neighbour, is marked
+        `uncertain` (the server writes it as "[MT?] (uncertain)")."""
         out = list(notes)
         i = 0
         while i < len(out):
             n = out[i]
-            if "split_from" not in n or not n.get("ocr_looped"):
+            suspect = None
+            if "split_from" in n and not n.get("ocr_looped") and n.get("vertical") and len(n["parts"]) == 1:
+                suspect = self._suspect(n)
+            if "split_from" not in n or not (n.get("ocr_looped") or suspect):
                 i += 1
                 continue
+            if suspect:
+                n["ocr_suspect"] = suspect
             j = next((k for k in (i + 1, i - 1) if 0 <= k < len(out)
                       and out[k].get("split_from") == n["split_from"]), None)
             if j is None:
+                if suspect:
+                    n["uncertain"] = True
                 i += 1
                 continue
             a, b = sorted((i, j))
@@ -1093,10 +1137,35 @@ class Pipeline:
             union = lambda k: [min(first[k][0], second[k][0]), min(first[k][1], second[k][1]),
                                max(first[k][2], second[k][2]), max(first[k][3], second[k][3])]
             merged = {**keep, "box": union("box"), "text_box": union("text_box"), "crop": union("crop"),
-                      "parts": first["parts"] + second["parts"], "merged_on_loop": True}
-            for k in ("source", "ocr_usage", "ocr_chunks", "ocr_retry", "ocr_looped"):
+                      "parts": first["parts"] + second["parts"]}
+            for k in ("source", "ocr_usage", "ocr_chunks", "ocr_retry", "ocr_looped", "ocr_short",
+                      "ocr_conf", "ocr_suspect", "uncertain"):
                 merged.pop(k, None)
             self._ocr_note(img, merged)
+            if not suspect:
+                merged["merged_on_loop"] = True
+                out[a:b + 1] = [merged]
+                i = a + 1
+                continue
+            whole = re.sub(r"\s+", "", merged["source"])
+            mine = re.sub(r"\s+", "", out[j]["source"])
+            rest = None
+            if mine and whole != mine:
+                if whole.startswith(mine):
+                    rest = whole[len(mine):]
+                elif whole.endswith(mine):
+                    rest = whole[:-len(mine)]
+            if rest and has_japanese(rest):
+                out[i] = {**n, "source": rest, "ocr_usage": merged["ocr_usage"], "ocr_conf": merged.get("ocr_conf"),
+                          "ocr_fallback": "merged_cut", "ocr_first_read": n["source"]}
+                if self._suspect(out[i]):
+                    out[i]["uncertain"] = True
+                i += 1
+                continue
+            merged["ocr_fallback"] = "merged"
+            merged["ocr_suspect"] = suspect
+            if self._suspect(merged):
+                merged["uncertain"] = True
             out[a:b + 1] = [merged]
             i = a + 1
         return out
@@ -1144,11 +1213,12 @@ class Pipeline:
                     text, n["ocr_usage"] = retry, usage
                     n["ocr_retry"] = "0.5x"
             n["source"] = clean_text(text)
+            n["ocr_conf"] = n["ocr_usage"].get("conf")
             return
         # Columns right -> left, k per call; the outer chunks keep the block's margin.
         k = self.s.ocr_columns_per_call
         pitch = (cols[0][1] - cols[-1][0]) / len(cols)
-        texts, usage = [], {}
+        texts, usage, confs = [], {}, []
         for i in range(0, len(cols), k):
             chunk = cols[i:i + k]
             lo = x1 - dx if i + k >= len(cols) else min(c[0] for c in chunk)
@@ -1156,6 +1226,8 @@ class Pipeline:
             crop = img.crop((round(max(0, lo)), top, round(min(img.width, hi)), bottom))
             text, u = self.ocr(crop, glyph=pitch)
             texts.append(clean_text(text))
+            if "conf" in u:
+                confs.append(u.pop("conf"))
             for key, v in u.items():
                 if isinstance(v, bool):
                     usage[key] = usage.get(key, False) or v
@@ -1164,6 +1236,7 @@ class Pipeline:
         n["source"] = "\n".join(t for t in texts if t)  # a line break = a column break (system prompt)
         n["ocr_usage"] = usage
         n["ocr_chunks"] = [len(cols), len(texts)]
+        n["ocr_conf"] = min(confs) if confs else None  # the weakest chunk
 
     def run(self, img: Image.Image, translate: bool = True,
             context_tags: dict[str, list[str]] | None = None) -> dict:
@@ -1187,6 +1260,8 @@ class Pipeline:
         blocks = []
         for n, tr in zip(notes, translations):
             b = {**geom(n["box"]), "source": n["source"]}
+            if n.get("uncertain"):
+                b["uncertain"] = True  # lone-column read still suspect after the fallback (server: [MT?])
             if n.get("color"):
                 b["color"] = n["color"]  # text colour of a split speaker group (display-boosted), #rrggbb
             if translate:
@@ -1209,7 +1284,8 @@ class Pipeline:
                            # [columns found, OCR calls] for a block read in column chunks
                            **({"ocr_chunks": n["ocr_chunks"]} if "ocr_chunks" in n else {}),
                            **{k: n[k] for k in ("ocr_retry", "ocr_short", "ocr_looped", "merged_on_loop",
-                                                 "split_refused", "joined") if k in n},
+                                                 "split_refused", "joined", "ocr_conf", "ocr_suspect", "ocr_fallback",
+                                                 "ocr_first_read", "uncertain") if k in n},
                            **({"ocr_truncated": True} if n["ocr_usage"].get("truncated") else {}),
                            **({k: n[k] for k in ("color", "measured_color", "speaker", "split_from") if k in n})}
                           for n in notes],

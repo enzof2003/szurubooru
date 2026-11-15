@@ -59,6 +59,19 @@ def test_plan_notes_flags_only_garbled_blocks():
     ]
 
 
+def test_plan_notes_flags_blocks_the_translator_marked_uncertain():
+    marked = _block("「ど…ひろな子しば…いやつ」", "What a bold brat...",
+                    [957, 8, 1004, 919], "#b75cd6")
+    marked["uncertain"] = True
+    unmarked = dict(marked, uncertain=False)
+    to_add, _to_remove, _skipped = tj.plan_notes([], [marked, unmarked])
+    assert [note["text"] for note in to_add] == [
+        "[MT?]{c:#b75cd6} (uncertain) What a bold brat...\n"
+        "「ど…ひろな子しば…いやつ」",
+        "[MT]{c:#b75cd6} What a bold brat...",
+    ]
+
+
 def test_plan_notes_replaces_uncertain_notes():
     existing = [
         (POLY, "[MT?] (uncertain) old\nう"),

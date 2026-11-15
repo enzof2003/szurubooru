@@ -378,7 +378,12 @@ def plan_notes(
         if polygon is None or not ((source or "").strip() or translation):
             skipped += 1
             continue
-        uncertain = ocr_garble.is_garbled(source, block.get("bbox_px"))
+        # The translator marks a block "uncertain" itself when a lone
+        # column's OCR stayed suspect after its fallback read (low token
+        # confidence, which this check can't see).
+        uncertain = block.get("uncertain") is True or ocr_garble.is_garbled(
+            source, block.get("bbox_px")
+        )
         to_add.append(
             {
                 "polygon": polygon,
