@@ -18,8 +18,14 @@ Image context: the post's character, series (serie/sub-serie/copyright) and
 artist tags are sent as "context_tags"; the translator puts them (plus its
 characters.txt note for each character) into the LLM prompt.
 
+Uncertain blocks: when a block's OCR text looks garbled (ocr_garble, a
+deterministic check, not the LLM's opinion), its note still carries the
+LLM's best guess but reads "[MT?] (uncertain) <guess>" with the raw OCR
+text on a second line, and the post is tagged translation_uncertain.
+
 Re-run control: a finished job tags the post machine_translated (plus
-translation_incomplete when some blocks stayed untranslated). Tagged posts
+translation_incomplete when some blocks stayed untranslated, and
+translation_uncertain when some were flagged as garbled). Tagged posts
 are refused with 409; removing the tag allows a new run, which replaces all
 [MT]/[MT?] notes and never touches unmarked (human) notes.
 
@@ -44,7 +50,9 @@ import sqlalchemy.exc
 import sqlalchemy.orm.exc
 
 from szurubooru import db, errors, model, rest
-from szurubooru.func import cache, posts, snapshots, tags, users, versions
+from szurubooru.func import (
+    cache, ocr_garble, posts, snapshots, tags, users, versions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +61,13 @@ MAX_ATTEMPTS = 2  # first run + one retry after an interrupted run
 MERGE_RETRIES = 5  # post version conflicts
 QUEUE_FULL_RETRIES = 40  # translator 503 "queue full", ~30 s apart
 MT_PREFIX_RE = re.compile(r"^\s*\[MT\??\]")  # [MT] or [MT?]
-MT_PLACEHOLDER_RE = re.compile(r"^\s*\[MT\?\]")  # untranslated
+# "[MT?]" is an untranslated placeholder, unless the uncertain marker
+# follows (a best guess from garbled OCR, see note_text).
+MT_PLACEHOLDER_RE = re.compile(r"^\s*\[MT\?\]")
+UNCERTAIN_MARK = "(uncertain)"
+MT_UNCERTAIN_RE = re.compile(
+    r"^\s*\[MT\?\](?:\{c:#[0-9a-fA-F]{6}\})?\s*\(uncertain\)"
+)
 # Speaker colour from the translator (text blocks that mix speakers by
 # lettering colour): stored right after the prefix as "{c:#rrggbb}", which the
 # client strips and turns into the note's border/tint. Strictly #rrggbb.
@@ -62,6 +76,8 @@ COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 # someone removes the tag. TAG_INCOMPLETE marks runs that left [MT?] notes.
 TAG_DONE = "machine_translated"
 TAG_INCOMPLETE = "translation_incomplete"
+# Some notes are best guesses from garbled OCR ("[MT?] (uncertain) ...").
+TAG_UNCERTAIN = "translation_uncertain"
 # Tag category name -> context_tags role sent to the translator. Other
 # categories (general, type, ...) are not sent.
 CONTEXT_CATEGORIES = {
@@ -275,11 +291,17 @@ def note_text(
     source: Optional[str],
     translation: Optional[str],
     color: Optional[str] = None,
+    uncertain: bool = False,
 ) -> str:
     source = (source or "").strip()
     translation = (translation or "").strip() if translation else ""
     color = note_color(color)
     marker = "{c:%s}" % color if color else ""
+    if translation and uncertain:
+        # Best guess from garbled OCR: flag it and show what OCR read.
+        return "[MT?]%s %s %s\n%s" % (
+            marker, UNCERTAIN_MARK, translation, source
+        )
     if translation:
         return "[MT]%s %s" % (marker, translation)
     # No translation: show the Japanese so the note isn't empty.
@@ -291,7 +313,13 @@ def is_mt_note(text: str) -> bool:
 
 
 def is_mt_placeholder(text: str) -> bool:
-    return bool(MT_PLACEHOLDER_RE.match(text or ""))
+    return bool(MT_PLACEHOLDER_RE.match(text or "")) and not is_mt_uncertain(
+        text
+    )
+
+
+def is_mt_uncertain(text: str) -> bool:
+    return bool(MT_UNCERTAIN_RE.match(text or ""))
 
 
 def has_tag(post: model.Post, name: str) -> bool:
@@ -350,30 +378,36 @@ def plan_notes(
         if polygon is None or not ((source or "").strip() or translation):
             skipped += 1
             continue
+        uncertain = ocr_garble.is_garbled(source, block.get("bbox_px"))
         to_add.append(
             {
                 "polygon": polygon,
-                "text": note_text(source, translation, block.get("color")),
+                "text": note_text(
+                    source, translation, block.get("color"), uncertain
+                ),
             }
         )
     return to_add, to_remove, skipped
 
 
-def _update_tags(post: model.Post, incomplete: bool) -> List[model.Tag]:
-    """Add machine_translated (+ translation_incomplete if needed), remove
-    translation_incomplete after a complete run. Returns created tags."""
-    wanted = [TAG_DONE] + ([TAG_INCOMPLETE] if incomplete else [])
+def _update_tags(
+    post: model.Post, incomplete: bool, uncertain: bool = False
+) -> List[model.Tag]:
+    """Add machine_translated, plus translation_incomplete and/or
+    translation_uncertain when they apply; remove those two after a run
+    where they don't. Returns created tags."""
+    flags = {TAG_INCOMPLETE: incomplete, TAG_UNCERTAIN: uncertain}
+    wanted = [TAG_DONE] + [name for name, on in flags.items() if on]
     missing = [name for name in wanted if not has_tag(post, name)]
     new_tags = []
     if missing:
         existing_tags, new_tags = tags.get_or_create_tags_by_names(missing)
         post.tags = post.tags + existing_tags + new_tags
-    if not incomplete and has_tag(post, TAG_INCOMPLETE):
+    stale = {name for name, on in flags.items() if not on}
+    if any(has_tag(post, name) for name in stale):
         post.tags = [
             tag for tag in post.tags
-            if not any(
-                n.name.lower() == TAG_INCOMPLETE for n in tag.names
-            )
+            if not any(n.name.lower() in stale for n in tag.names)
         ]
     return new_tags
 
@@ -549,13 +583,14 @@ def _merge_result(job_id: int, post_id: int, blocks: List[Any]) -> None:
             existing = [(note.polygon, note.text) for note in current]
             to_add, to_remove, skipped = plan_notes(existing, blocks)
             incomplete = any(is_mt_placeholder(n["text"]) for n in to_add)
+            uncertain = any(is_mt_uncertain(n["text"]) for n in to_add)
             for index in to_remove:
                 post.notes.remove(current[index])  # delete-orphan
             for note in to_add:
                 post.notes.append(
                     model.PostNote(polygon=note["polygon"], text=note["text"])
                 )
-            new_tags = _update_tags(post, incomplete)
+            new_tags = _update_tags(post, incomplete, uncertain)
             versions.bump_version(post)
             post.last_edit_time = datetime.utcnow()
             db.session.flush()
@@ -571,9 +606,10 @@ def _merge_result(job_id: int, post_id: int, blocks: List[Any]) -> None:
             cache.purge()
             logger.info(
                 "Translation job %d: post %d, %d notes added "
-                "(%d old MT notes removed), %d skipped%s",
+                "(%d old MT notes removed), %d skipped%s%s",
                 job_id, post_id, len(to_add), len(to_remove), skipped,
                 ", incomplete" if incomplete else "",
+                ", uncertain" if uncertain else "",
             )
             return
         except sa.orm.exc.StaleDataError:
