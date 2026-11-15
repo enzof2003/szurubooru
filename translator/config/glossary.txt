@@ -225,6 +225,9 @@
 飯綱丸龍 = Megumu Iizunamaru
 天弓千亦 = Chimata Tenkyuu
 姫虫百々世 = Momoyo Himemushi
+典 = Tsukasa [Kudamaki Tsukasa's given name when used alone as a name; never "Noriko". In compound words like 辞典/典型 it is not a name]
+山如 = Sannyo [Komakusa Sannyo]
+たかね = Takane [Takane Yamashiro]
 
 # ===== UDoALG =====
 孫美天 = Son Biten
