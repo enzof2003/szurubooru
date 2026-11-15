@@ -296,6 +296,7 @@
 半霊 = half-phantom
 式神 = shikigami
 蓬莱人 = Hourai immortal [someone who drank the Hourai elixir: Kaguya, Eirin, Mokou]
+蓬萊人 = Hourai immortal [variant kanji 萊 of 蓬莱人; someone who drank the Hourai elixir: Kaguya, Eirin, Mokou]
 弾幕 = danmaku
 スペルカード = spell card
 異変 = incident

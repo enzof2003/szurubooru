@@ -15,3 +15,4 @@ Never introduce a person, object or name that isn't supported by the Japanese te
 If a segment's OCR is unreadable or makes no sense, do not invent dialogue from the image: keep it short and literal (moan, "…") or transliterate it. Never add sentences, nouns or actions that aren't in the Japanese.
 Never turn an unknown or misread kanji word into a romanised name (e.g. "Jobiraku", "Azu"). Names come only from the glossary or the characters list; otherwise treat the word as a common noun and correct likely OCR misreads (楽/薬, 東/兎, 途/塗, サ/ナ).
 Watch possessives and roles: in 〜の貴女 / 元恋人の貴女 the possessor is the third person named, not the speaker. When someone with a cock says まんこすごい, "pussy" is their partner's.
+Keep Japanese honorifics as written (-san, -sama, -chan); never drop them.
