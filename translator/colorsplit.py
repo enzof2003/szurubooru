@@ -6,7 +6,9 @@ vs lavender, yellow vs cyan). Steps:
 
   1. mask    "text-coloured" pixels: tinted, not near-white/near-black, and within a few px of a
              near-white pixel (the fill/outline pair). Background colour rarely touches white, so
-             the mask is mostly the lettering itself.
+             the mask is mostly the lettering itself. Plus vivid fill enclosed by a near-black
+             outline (yellow lettering with a black outline, posts 25661/25638/25637): a vivid
+             pixel with near-black within ENCLOSE_RADIUS px on both sides, left+right or up+down.
   2. lines   project the lettering (tinted pixels, plus near-black next to near-white for untinted
              text) across the block: vertical text -> columns, horizontal -> rows. Vertical
              columns come from columns() (the OCR chunks' cuts) when it finds more of them.
@@ -23,6 +25,10 @@ vs lavender, yellow vs cyan). Steps:
              speaker turn). Untinted lines are never dropped: a real line of text becomes its own
              neutral group (no colour), a short tail (」, ♥, …) joins the previous run. Every line
              found ends up in exactly one group (checked; otherwise no split).
+  6. guard   the groups' OCR crops must cover the block's lettering: a split that leaves more
+             than LOST_INK_MAX of it outside every crop is refused (the block is then read whole).
+             Post 9150: background touching a white bubble passed for coloured lettering and the
+             "groups" were slivers that missed the bubble's real (black) text.
 
 Plain black-on-white text has no tinted ink at all, so it never splits.
 """
@@ -52,6 +58,11 @@ NEUTRAL = -1
 DOMINANT_MIN = 0.6    # unsplit block: share of its text-line length that must be tinted for a colour
 EDGE_MARGIN = 0.3     # OCR crop margin past the block's outer edge, in line widths
 MAX_LINE_GAP = 1.5    # blank stretch (in line widths) that ends a line's text
+VIVID_SAT = 110       # dark-outlined fill: max - min of a vivid pixel ...
+VIVID_MIN = 170       # ... and its max(R,G,B)
+ENCLOSE_RADIUS = 8    # px: near-black on both sides within this distance (about one stroke width)
+CHUNKS_AGREE = 0.8    # a mixed line whose pure glyph chunks agree this much on one colour has it
+LOST_INK_MAX = 0.15   # a split may leave at most this share of the block's lettering in no crop
 DISPLAY_S_MIN = 0.6   # returned colour: HSL saturation floor ...
 DISPLAY_L = (0.45, 0.60)  # ... and lightness range
 
@@ -106,6 +117,39 @@ def _dilate(mask: np.ndarray, r: int) -> np.ndarray:
     return out
 
 
+def _reach(mask: np.ndarray, axis: int, sign: int, r: int) -> np.ndarray:
+    """Pixels with a True pixel of `mask` 1..r px away on one side along `axis`."""
+    out = np.zeros_like(mask)
+    for k in range(1, r + 1):
+        src = [slice(None), slice(None)]
+        dst = [slice(None), slice(None)]
+        src[axis], dst[axis] = (slice(None, -k), slice(k, None)) if sign > 0 else (slice(k, None), slice(None, -k))
+        out[tuple(dst)] |= mask[tuple(src)]
+    return out
+
+
+def _dark_outlined(mx: np.ndarray, mn: np.ndarray) -> np.ndarray:
+    """Vivid fill enclosed by a near-black outline: lettering like yellow with a black outline,
+    which has no near-white pixel next to it. Background colour is rarely both vivid and squeezed
+    between two dark edges a stroke apart."""
+    dark = mx < DARK_MAX
+    vivid = (mx - mn >= VIVID_SAT) & (mx >= VIVID_MIN)
+    r = ENCLOSE_RADIUS
+    return vivid & ((_reach(dark, 1, 1, r) & _reach(dark, 1, -1, r)) | (_reach(dark, 0, 1, r) & _reach(dark, 0, -1, r)))
+
+
+def lettering_masks(a: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(tinted lettering next to white, vivid lettering in a dark outline, untinted lettering)
+    of an int16 RGB array. The first two can overlap: see _analyse."""
+    mx, mn = a.max(-1), a.min(-1)
+    white = mn >= WHITE_MIN
+    near_white = _dilate(white, PAIR_RADIUS)
+    mask = (mx - mn >= SAT_MIN) & ~white & (mx >= 60) & near_white        # tinted, next to white
+    outlined = _dark_outlined(mx, mn)                                     # vivid, in a dark outline
+    neutral = (mx < DARK_MAX) & near_white  # black text, dark outline of white text
+    return mask, outlined, neutral
+
+
 def _hue(a: np.ndarray) -> np.ndarray:
     """Hue (degrees) of an (N,3) RGB array."""
     a = a.astype(float)
@@ -139,9 +183,18 @@ def _runs(profile: np.ndarray, thr: float, min_len: int) -> list[tuple[int, int]
     return merged
 
 
-def _lines(mask: np.ndarray, vertical: bool) -> list[tuple[int, int]]:
-    """(start, end) of the text lines: columns (vertical) or rows (horizontal)."""
+def _profile(mask: np.ndarray, vertical: bool, other: np.ndarray | None = None) -> np.ndarray:
+    """Ink of `mask` across the lines; zero where the `other` lettering style has more ink, so the
+    lines of the two styles (white-paired, dark-outlined) can never overlap."""
     prof = mask.sum(0 if vertical else 1).astype(float)
+    if other is not None:
+        prof[other.sum(0 if vertical else 1) > prof] = 0
+    return prof
+
+
+def _lines(mask: np.ndarray, vertical: bool, other: np.ndarray | None = None) -> list[tuple[int, int]]:
+    """(start, end) of the text lines: columns (vertical) or rows (horizontal)."""
+    prof = _profile(mask, vertical, other)
     hi = np.percentile(prof, 90)
     if hi <= 0:
         return []
@@ -210,11 +263,11 @@ def _neutral_runs(neutral: np.ndarray, mask: np.ndarray, runs: list[tuple[int, i
     return out
 
 
-def _column_lines(mask: np.ndarray, cols: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _column_lines(mask: np.ndarray, cols: list[tuple[int, int]], other: np.ndarray | None = None) -> list[tuple[int, int]]:
     """Tinted lines from column cuts (crop px, left to right): each column trimmed to its tinted
     ink, so the lines keep their real gaps (for the OCR crops); columns without tinted ink dropped
     (an untinted column is found by _neutral_runs, as with _lines)."""
-    prof = mask.sum(0).astype(float)
+    prof = _profile(mask, True, other)
     thr = GAP_FRAC * np.percentile(prof, 90)
     out = []
     for lo, hi in cols:
@@ -224,25 +277,49 @@ def _column_lines(mask: np.ndarray, cols: list[tuple[int, int]]) -> list[tuple[i
     return out
 
 
+def _outlined_lines(outlined: np.ndarray, mask: np.ndarray, vertical: bool) -> list[tuple[int, int]]:
+    """Lines of dark-outlined vivid lettering, found on their own profile: next to white-outlined
+    columns there is no gap in a joint profile (the outlines touch; 25661: two green columns and
+    a yellow one came out as one line). Only where this style has more ink than the white-paired
+    one (see _profile), and only where that ink is as dense as lettering."""
+    out = []
+    for s, e in _lines(outlined, vertical, mask):
+        isub = outlined[:, s:e] if vertical else outlined[s:e].T
+        lo, hi = _ink_extent(isub.sum(1), e - s)
+        if isub[lo:hi].sum() >= max(20, MIN_LINE_INK * (hi - lo) * (e - s)):
+            out.append((s, e))
+    return out
+
+
 def _analyse(a: np.ndarray, neutral: np.ndarray, mask: np.ndarray, vertical: bool, x1: int, y1: int,
-             cols: list[tuple[int, int]] | None = None) -> list[_Line]:
-    """Tinted lines from `mask` (with their colours) plus untinted lines from `neutral`.
-    `cols`: column cuts from columns() (crop px), used instead of the fixed-threshold line finder
-    for vertical text when they find more columns (it merges columns whose gaps catch background
-    tint: post 25687, two speakers' columns read as one mixed column, so no split)."""
-    tinted = _lines(mask, vertical)
+             cols: list[tuple[int, int]] | None = None, outlined: np.ndarray | None = None) -> list[_Line]:
+    """Tinted lines from `mask` and `outlined` (with their colours) plus untinted lines from
+    `neutral`. `cols`: column cuts from columns() (crop px), used instead of the fixed-threshold
+    line finder for vertical text when they find more columns (it merges columns whose gaps catch
+    background tint: post 25687, two speakers' columns read as one mixed column, so no split)."""
+    dark = _outlined_lines(outlined, mask, vertical) if outlined is not None and outlined.any() else []
+    other = outlined if dark else None  # no dark-outlined line: exactly the white-paired analysis
+    if dark:
+        # Dark-outlined lettering over a white background has its fill within PAIR_RADIUS of
+        # white too (thin outline), and its duller anti-aliased edge always is: left in the
+        # white-paired mask they bridge the gaps to the neighbouring white-outlined columns (25638).
+        mask = mask & ~_dilate(outlined, PAIR_RADIUS)
+    tinted = _lines(mask, vertical, other)
     if vertical and cols:
-        from_cols = _column_lines(mask, cols)
+        from_cols = _column_lines(mask, cols, other)
         if len(from_cols) > len(tinted):
             tinted = from_cols
-    runs = [(s, e, mask) for s, e in tinted] + [(s, e, neutral) for s, e in _neutral_runs(neutral, mask, tinted, vertical)]
+    runs = [(s, e, mask) for s, e in tinted] + [(s, e, outlined) for s, e in dark]
+    both = mask | outlined if dark else mask
+    spans = sorted((s, e) for s, e, _ in runs)
+    runs += [(s, e, neutral) for s, e in _neutral_runs(neutral, both, spans, vertical)]
     out = []
     for s, e, src in sorted(runs, key=lambda r: r[0]):
         isub = src[:, s:e] if vertical else src[s:e].T             # axis 0 runs along the line
         rgb_sub = a[:, s:e] if vertical else a[s:e].transpose(1, 0, 2)
         lo, hi = _ink_extent(isub.sum(1), e - s)
         sub = np.zeros(isub.shape, bool)
-        if src is mask:
+        if src is not neutral:
             sub[lo:hi] = isub[lo:hi]
         box = [x1 + s, y1 + lo, x1 + e, y1 + hi] if vertical else [x1 + lo, y1 + s, x1 + hi, y1 + e]
         px = rgb_sub[sub]
@@ -261,8 +338,25 @@ def _analyse(a: np.ndarray, neutral: np.ndarray, mask: np.ndarray, vertical: boo
                         cl, cpur = _colour(cp)
                         if cpur >= MIXED_PURITY:
                             line.chunks.append((cl, _rgb(cp, cl)))
+                _agreed_colour(line, px, -(-(hi - lo) // step))
         out.append(line)
     return out
+
+
+def _agreed_colour(line: _Line, px: np.ndarray, steps: int) -> None:
+    """A "mixed" line whose glyph chunks agree on one colour is a single-colour line after all
+    (25632: a blue column at purity 0.79, background tint at its lower end; as a mixed line it
+    could only take a colour some pure line had defined, so its speaker was lost). Needs pure
+    chunks on at least half of the line, CHUNKS_AGREE of them within MIN_DELTA_E of their median.
+    A highlighted phrase inside a line fails this and keeps the glyph-by-glyph rule."""
+    if len(line.chunks) < max(3, 0.5 * steps):
+        return
+    labs = np.array([c[0] for c in line.chunks])
+    med = np.median(labs, 0)
+    near = np.linalg.norm(labs - med, axis=1) < MIN_DELTA_E
+    if near.mean() >= CHUNKS_AGREE:
+        lab = np.median(labs[near], 0)
+        line.lab, line.rgb, line.chunks = lab, _rgb(px, lab), None
 
 
 def _cluster(labs: list[np.ndarray], weights: list[int]) -> list[np.ndarray]:
@@ -291,8 +385,16 @@ def analyse_block(img: Image.Image, box: list[float]) -> tuple[list[Group] | Non
     The dominant colour is set only when the block is not split and its lettering is clearly one
     colour: a single colour cluster, and tinted lines make up >= DOMINANT_MIN of the length of all
     its text lines (tinted + untinted). Plain black/white text has none."""
+    groups, info = analyse_block_info(img, box)
+    return groups, info.get("dominant")
+
+
+def analyse_block_info(img: Image.Image, box: list[float]) -> tuple[list[Group] | None, dict]:
+    """(colour groups or None, info). info: "dominant" (see analyse_block); "lost_ink", the share
+    of the block's lettering outside every group crop; "refused" = "lost_ink" when that made the
+    split be dropped."""
     info: dict = {}
-    return _split(img, box, info), info.get("dominant")
+    return _split(img, box, info), info
 
 
 def _split(img: Image.Image, box: list[float], info: dict) -> list[Group] | None:
@@ -301,19 +403,15 @@ def _split(img: Image.Image, box: list[float], info: dict) -> list[Group] | None
     if x2 - x1 < 8 or y2 - y1 < 8:
         return None
     a = np.asarray(img.crop((x1, y1, x2, y2)).convert("RGB")).astype(np.int16)
-    mx, mn = a.max(-1), a.min(-1)
-    white = mn >= WHITE_MIN
-    near_white = _dilate(white, PAIR_RADIUS)
-    mask = (mx - mn >= SAT_MIN) & ~white & (mx >= 60) & near_white        # tinted lettering
-    if mask.mean() < 0.005:
+    mask, outlined, neutral = lettering_masks(a)
+    if (mask | outlined).mean() < 0.005:
         return None
-    neutral = (mx < DARK_MAX) & near_white  # untinted lettering: black text, dark outline of white text
     cols = columns(img, [x1, y1, x2, y2])  # the same column cuts the OCR chunks use
     cols = sorted((lo - x1, hi - x1) for lo, hi in cols) if cols else None
 
     analysed = {}
     for vertical in (True, False):
-        lines = _analyse(a, neutral, mask, vertical, x1, y1, cols)
+        lines = _analyse(a, neutral, mask, vertical, x1, y1, cols, outlined)
         total = sum(l.n for l in lines) or 1
         analysed[vertical] = (sum(l.purity * l.n for l in lines) / total, lines)
     # Vertical (Japanese default) unless its columns are clearly mixed: rows can look "purer" when a
@@ -402,6 +500,15 @@ def _split(img: Image.Image, box: list[float], info: dict) -> list[Group] | None
                               max(b[3] for b in ls)], rgb=rgb, lines=ls,
                          label=g["label"] if g["label"] is not None else NEUTRAL, crop=crop,
                          vertical=vertical))
+    # Guard: the crops must hold the block's lettering (tinted + untinted), or text is lost.
+    ink = mask | outlined | neutral
+    covered = np.zeros(ink.shape, bool)
+    for g in out:
+        covered[max(0, g.crop[1] - y1):max(0, g.crop[3] - y1), max(0, g.crop[0] - x1):max(0, g.crop[2] - x1)] = True
+    info["lost_ink"] = round(float((ink & ~covered).sum()) / max(int(ink.sum()), 1), 3)
+    if info["lost_ink"] > LOST_INK_MAX:
+        info["refused"] = "lost_ink"
+        return None
     return out
 
 

@@ -115,6 +115,21 @@ def looped(raw: str, usage: dict) -> bool:
     return bool(usage.get("truncated")) or len(raw or "") - len(clean_text(raw)) >= LOOP_TRIMMED
 
 
+SHORT_READ = 0.6      # a vertical colour group's read below this many chars per glyph cell is short
+SHORT_READ_MIN_CELLS = 4
+
+
+def _glyphs(text: str) -> int:
+    return sum(1 for ch in clean_text(text) if not ch.isspace())
+
+
+def short_read(text: str, lines: list[list[float]]) -> bool:
+    """An OCR read with far fewer characters than its columns have room for. `lines`: the column
+    boxes of a vertical colour group; a column holds about length / width glyph cells."""
+    cells = sum((b[3] - b[1]) / max(b[2] - b[0], 1.0) for b in lines)
+    return cells >= SHORT_READ_MIN_CELLS and _glyphs(text) < SHORT_READ * cells
+
+
 def _area(b) -> float:
     return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
 
@@ -517,7 +532,62 @@ def resolve_text_hierarchy(texts: list[dict], threshold: float, floor: float = 0
         return [node]
 
     roots = [t for t in cand if t["score"] >= threshold and all(a["score"] < threshold for a in ancestors(t))]
-    return _merge_overlapping([dict(x) for r in roots for x in choose(r)])
+    chosen = [(r, [dict(x) for x in choose(r)]) for r in roots]
+    if ink is not None:
+        chosen = _join_cut_columns(chosen, parent_of, ink)
+    return _merge_overlapping([x for _, xs in chosen for x in xs])
+
+
+SEAM_X_OVERLAP = 0.7    # stacked halves: shared width, as a share of the narrower box
+SEAM_BLANK_ROWS = 0.004  # x page height (min 3 px): a blank band this tall at the seam = two blocks
+SEAM_BLANK_INK = 0.05   # a row is blank below this share of the block's median row ink
+
+
+def _join_cut_columns(chosen: list[tuple[dict, list[dict]]], parent_of: dict, ink: np.ndarray):
+    """The detector sometimes cuts one block of vertical text in two at some height (25632: top
+    half 0.42, bottom half 0.32, the whole block 0.249, just under the threshold; every column
+    was split mid-sentence). Two chosen boxes are joined when the detector also proposed a box
+    holding both (their common parent, below the threshold), they are stacked (one above the
+    other, touching or overlapping, sharing most of their width) and the lettering runs through
+    the seam without a blank band: two separate blocks have a gap between them."""
+    out = list(chosen)
+    joined = True
+    while joined:
+        joined = False
+        for i in range(len(out)):
+            for j in range(len(out)):
+                (ra, xa), (rb, xb) = out[i], out[j]
+                if i == j or len(xa) != 1 or len(xb) != 1 or parent_of.get(id(ra)) is None \
+                        or parent_of.get(id(ra)) is not parent_of.get(id(rb)):
+                    continue
+                a, b = xa[0]["box"], xb[0]["box"]
+                if not (a[1] < b[1] and a[3] < b[3]) or not _seam_inked(a, b, ink):
+                    continue
+                merged = {**xa[0], "box": _union([a, b]), "score": max(xa[0]["score"], xb[0]["score"]),
+                          "joined": "cut_columns"}
+                out[i] = (ra, [merged])
+                del out[j]
+                joined = True
+                break
+            if joined:
+                break
+    return out
+
+
+def _seam_inked(a: list[float], b: list[float], ink: np.ndarray) -> bool:
+    """`a` above `b`: stacked on (nearly) the same x range, and no blank band where they meet."""
+    lo, hi = max(a[0], b[0]), min(a[2], b[2])
+    if hi - lo < SEAM_X_OVERLAP * min(a[2] - a[0], b[2] - b[0]):
+        return False
+    need = max(3, round(SEAM_BLANK_ROWS * ink.shape[0]))
+    if b[1] - a[3] > need:  # a real gap between the boxes
+        return False
+    rows = ink[int(a[1]):int(np.ceil(b[3])), int(lo):int(np.ceil(hi))].sum(1).astype(float)
+    if not len(rows) or np.median(rows) <= 0:
+        return False
+    s0, s1 = sorted((int(b[1] - a[1]), int(a[3] - a[1])))  # the seam: from b's top to a's bottom
+    band = rows[max(0, s0 - need):min(len(rows), s1 + need)] < SEAM_BLANK_INK * np.median(rows)
+    return not _runs(band, need)
 
 
 def _merge_overlapping(chosen: list[dict]) -> list[dict]:
@@ -587,9 +657,11 @@ def build_notes(dets: list[dict], skip: tuple[str, ...], W: int, H: int,
         notes.append({"box": bubbles[bi]["box"], "text_box": _union([m["box"] for m in members]),
                       "parts": [m["box"] for m in members], "kind": "bubble",
                       "score": max(m["score"] for m in members),
-                      **({"origin": "onomatopoeia_in_bubble"} if any(m.get("origin") for m in members) else {})})
+                      **({"origin": "onomatopoeia_in_bubble"} if any(m.get("origin") for m in members) else {}),
+                      **({"joined": "cut_columns"} if any(m.get("joined") for m in members) else {})})
     for t in free:
-        notes.append({"box": t["box"], "text_box": t["box"], "parts": [t["box"]], "kind": "text", "score": t["score"]})
+        notes.append({"box": t["box"], "text_box": t["box"], "parts": [t["box"]], "kind": "text", "score": t["score"],
+                      **({"joined": t["joined"]} if t.get("joined") else {})})
 
     # 2. reading order: panels first (right->left, top->bottom), then notes inside each panel
     panel_boxes = [p["box"] for p in panels] or [[0.0, 0.0, float(W), float(H)]]
@@ -629,8 +701,11 @@ def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
     and `split_from`. An unsplit block with one clear lettering colour gets `color` and `speaker`."""
     out = []
     for i, n in enumerate(notes):
-        groups, dominant = colorsplit.analyse_block(img, n["text_box"])
+        groups, info = colorsplit.analyse_block_info(img, n["text_box"])
+        dominant = info.get("dominant")
         if not groups:
+            if info.get("refused"):  # a split that would lose lettering: the block is read whole
+                n = {**n, "split_refused": info["refused"]}
             if dominant:  # one clear lettering colour: the note still gets it (and a speaker letter)
                 n = {**n, "rgb": dominant, "color": colorsplit.hex_for(dominant),
                      "measured_color": "#%02x%02x%02x" % dominant}
@@ -1056,6 +1131,18 @@ class Pipeline:
                     text, n["ocr_usage"] = retry, usage
                 else:
                     n["ocr_looped"] = True  # merged with a neighbouring group (_merge_looping_groups)
+            elif n.get("crop") and n["vertical"] and "ocr_retry" not in n and short_read(text, n["parts"]):
+                # A lone narrow column is read unreliably: on 25694 the 62x740 crop of
+                # （でっか…なんなのよコイツら…） came back as （…ひゃっ）, and moving the crop by one
+                # pixel gave another wrong answer; half size read it right. So a read far too
+                # short for the column's length gets the same half-size retry, kept only if it
+                # is longer and doesn't loop.
+                half = crop.resize((max(1, crop.width // 2), max(1, crop.height // 2)), Image.LANCZOS)
+                retry, usage = self.ocr(half)
+                n["ocr_short"] = True
+                if not looped(retry, usage) and _glyphs(retry) > _glyphs(text):
+                    text, n["ocr_usage"] = retry, usage
+                    n["ocr_retry"] = "0.5x"
             n["source"] = clean_text(text)
             return
         # Columns right -> left, k per call; the outer chunks keep the block's margin.
@@ -1121,7 +1208,8 @@ class Pipeline:
                            **{k: n[k] for k in ("upscale", "downscale") if k in n},
                            # [columns found, OCR calls] for a block read in column chunks
                            **({"ocr_chunks": n["ocr_chunks"]} if "ocr_chunks" in n else {}),
-                           **{k: n[k] for k in ("ocr_retry", "ocr_looped", "merged_on_loop") if k in n},
+                           **{k: n[k] for k in ("ocr_retry", "ocr_short", "ocr_looped", "merged_on_loop",
+                                                 "split_refused", "joined") if k in n},
                            **({"ocr_truncated": True} if n["ocr_usage"].get("truncated") else {}),
                            **({k: n[k] for k in ("color", "measured_color", "speaker", "split_from") if k in n})}
                           for n in notes],
