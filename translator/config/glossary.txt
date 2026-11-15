@@ -144,6 +144,7 @@
 ルナチャイルド = Luna Child
 スターサファイア = Star Sapphire
 クラウンピース = Clownpiece
+ピース = Piece [Clownpiece's nickname]
 エタニティラルバ = Eternity Larva
 
 # ===== TD / Divine Spirit Mausoleum =====
@@ -162,6 +163,8 @@
 # ===== DDC =====
 わかさぎ姫 = Wakasagihime
 赤蛮奇 = Sekibanki
+蛮奇 = Banki [Sekibanki's short name; 赤蛮奇 = Sekibanki]
+ばんき = Banki [Sekibanki's nickname]
 今泉影狼 = Kagerou Imaizumi
 影狼 = Kagerou
 九十九弁々 = Benben Tsukumo
@@ -186,6 +189,7 @@
 綿月豊姫 = Watatsuki no Toyohime
 綿月依姫 = Watatsuki no Yorihime
 玉兎 = moon rabbit
+穢れ = impurity [Lunarian concept of earthly defilement; not "filth"]
 
 # ===== HSiFS =====
 坂田ネムノ = Nemuno Sakata
@@ -288,14 +292,18 @@
 吸血鬼 = vampire
 半霊 = half-phantom
 式神 = shikigami
+蓬莱人 = Hourai immortal [someone who drank the Hourai elixir: Kaguya, Eirin, Mokou]
 弾幕 = danmaku
 スペルカード = spell card
 異変 = incident
 賽銭箱 = donation box
 練酒 = nerizake [thick milky-white sake; keep the word, it's often a double meaning]
+常備薬 = household medicine [kit of everyday medicines]
 
 # ===== Adult terms: translate naturally and explicitly =====
 ふたなり = futanari [may shorten to "futa"]
+虎マラ = tiger cock [マラ = cock; a jab at Shou the tiger youkai, not a name]
+ズリキチ = paizuri-addict [obsessed with titfucks]
 童貞チンポ = my virgin cock [the SPEAKER's own cock unless another owner is named: with 挿れさせて / ブチ込ませて the speaker is the one putting it in → "my virgin cock", never "your"]
 童貞 = virgin [MALE virginity only: 童貞チンポ = "(my/his) virgin cock" — belongs to the speaker/owner, never "virgin pussy"; female virginity is 処女]
 処女 = virgin [female virginity: 処女まんこ = "virgin pussy"]
@@ -350,6 +358,7 @@
 ハ雪皆 = Yukari Yakumo [OCR misread of 八雲紫]
 ハ雪 = Yakumo [OCR misread of 八雲 (八→ハ, 雲→雪)]
 煙馬 = stud [OCR misread of 種馬, breeding stallion]
+常備楽 = household medicine [OCR misread of 常備薬]
 正 = tally mark [when repeated (正正正…), it's a Japanese tally: each full 正 = 5, partial forms (一, T, F, 下) = 1–4; translate as the total number, e.g. "25" or "||||| ×5"]
 
 # ===== Grammar: who does what (giving/receiving) =====

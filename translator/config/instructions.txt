@@ -10,3 +10,8 @@ Words stretched with ー or repeated vowels (e.g. でーなーおーせー = 出
 Keep the source's level of explicitness: never replace a neutral or euphemistic word (お股, あそこ) with a cruder one, and never invent actions that aren't in the text.
 
 Translate every line in order, including interjections and animal sounds like もー (moo); never drop or reorder.
+
+Never introduce a person, object or name that isn't supported by the Japanese text; use the image only for context (speaker, tone).
+If a segment's OCR is unreadable or makes no sense, do not invent dialogue from the image: keep it short and literal (moan, "…") or transliterate it. Never add sentences, nouns or actions that aren't in the Japanese.
+Never turn an unknown or misread kanji word into a romanised name (e.g. "Jobiraku", "Azu"). Names come only from the glossary or the characters list; otherwise treat the word as a common noun and correct likely OCR misreads (楽/薬, 東/兎, 途/塗, サ/ナ).
+Watch possessives and roles: in 〜の貴女 / 元恋人の貴女 the possessor is the third person named, not the speaker. When someone with a cock says まんこすごい, "pussy" is their partner's.

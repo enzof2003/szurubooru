@@ -58,6 +58,7 @@ nitori_kawashiro = Nitori Kawashiro (Touhou): kappa engineer; loves cucumbers (�
 suwako_moriya = Suwako Moriya (Touhou): frog goddess (ケロ); hat with eyes; old native god in a child's body
 kanako_yasaka = Kanako Yasaka (Touhou): goddess of wind and mountains; giant onbashira pillars
 hina_kagiyama = Hina Kagiyama (Touhou): curse goddess who spins and gathers people's misfortune
+minoriko_aki = Minoriko Aki (Touhou): goddess of the harvest; her name is a pun on 稔り (ripening/harvest); smells of sweet potatoes
 
 # ===== Underground =====
 satori_komeiji = Satori Komeiji (Touhou): satori youkai; her third eye reads minds, so she answers and reacts to unspoken thoughts
@@ -97,6 +98,8 @@ raiko_horikawa = Raiko Horikawa (Touhou): drum tsukumogami
 # ===== Moon / Hell =====
 doremy_sweet = Doremy Sweet (Touhou): baku who eats dreams and rules the dream world
 sagume_kishin = Sagume Kishin (Touhou): goddess whose spoken words reverse events, so she barely speaks
+watatsuki_no_yorihime = Watatsuki no Yorihime (Touhou): Lunarian princess, swordswoman who channels gods; despises earthly impurity (穢れ); Reisen's former master
+watatsuki_no_toyohime = Watatsuki no Toyohime (Touhou): Lunarian princess, Yorihime's elder sister; carefree; Reisen's former master
 clownpiece = Clownpiece (Touhou): hell fairy with a madness torch; "it's lunatic time!"; American flag clothes
 junko = Junko (Touhou): pure fury of grudges
 hecatia_lapislazuli = Hecatia Lapislazuli (Touhou): goddess of hell with three bodies (Earth, Moon, Otherworld); "Welcome Hell" T-shirt
