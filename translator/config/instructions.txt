@@ -16,3 +16,5 @@ If a segment's OCR is unreadable or makes no sense, do not invent dialogue from 
 Never turn an unknown or misread kanji word into a romanised name (e.g. "Jobiraku", "Azu"). Names come only from the glossary or the characters list; otherwise treat the word as a common noun and correct likely OCR misreads (楽/薬, 東/兎, 途/塗, サ/ナ).
 Watch possessives and roles: in 〜の貴女 / 元恋人の貴女 the possessor is the third person named, not the speaker. When someone with a cock says まんこすごい, "pussy" is their partner's.
 Keep Japanese honorifics as written (-san, -sama, -chan); never drop them.
+Translate only the text of the segment itself. Text that the image shows in another segment's box belongs to that segment: never repeat it here.
+A short segment with no verb ending is a statement or greeting by the speaker, not an order. Don't turn it into an imperative unless the Japanese has one (〜て, 〜なさい, 〜ろ).
