@@ -1,6 +1,7 @@
 "use strict";
 
 const api = require("../api.js");
+const misc = require("../util/misc.js");
 const uri = require("../util/uri.js");
 const views = require("../util/views.js");
 
@@ -97,18 +98,21 @@ class PostTranslateControl {
                 this._setBusy(false);
                 this._message("showError", error.message);
                 // e.g. someone else already queued it: show that job instead
-                this._fetchStatus(false);
+                // (and otherwise leave the error on screen)
+                this._fetchStatus(false, true);
             }
         );
     }
 
-    _fetchStatus(initial) {
+    // keepMessage: the message on screen (a failed click's error) stays
+    // unless the latest job has something to say itself.
+    _fetchStatus(initial, keepMessage) {
         if (!this._isAttached()) {
             return;
         }
         delete api.cache[this._url]; // api.get() caches by URL; we poll
         api.get(this._url, { noProgress: true }).then(
-            (job) => this._render(job, initial),
+            (job) => this._render(job, initial, keepMessage),
             (error) => {
                 if (!initial) {
                     // transient (server restarting?): keep polling
@@ -126,7 +130,37 @@ class PostTranslateControl {
         );
     }
 
-    _render(job, initial) {
+    // The post JSON on this page can predate a job that finished in the
+    // background: api.get() caches per URL and the post preloader fetches
+    // neighbours early. Such a post has no MT notes, no machine_translated
+    // tag, and was last edited before the job ended (the job's own merge is
+    // the edit that follows; removing the tag later is a newer edit).
+    _isStale(job) {
+        if (job.status !== "done" || this._translated || !job.endTime) {
+            return false;
+        }
+        const edited = Date.parse(this._post.lastEditTime);
+        return isNaN(edited) || edited < Date.parse(job.endTime);
+    }
+
+    _refreshStalePost() {
+        if (this._editMode) {
+            // don't clobber the edit form; saving would hit a version
+            // conflict anyway
+            this._message(
+                "showInfo",
+                "This post was machine-translated after this page was " +
+                    "loaded. Reload the page to see the notes."
+            );
+            return;
+        }
+        this._post.refresh().then(
+            () => this._updateButton(),
+            () => {} // still usable; the server refuses a second run
+        );
+    }
+
+    _render(job, initial, keepMessage) {
         if (!this._isAttached() || !job) {
             return;
         }
@@ -153,16 +187,24 @@ class PostTranslateControl {
                 this._watching ||
                 (initial && Date.now() - ended < SHOW_FAILURE_FOR_MS)
             ) {
+                // views.showError() takes HTML, and job.error can quote
+                // the translator's or the LLM provider's reply verbatim
                 this._message(
                     "showError",
-                    "Translation failed: " + (job.error || "unknown error")
+                    "Translation failed: " +
+                        misc.escapeHtml(job.error || "unknown error")
                 );
             }
         } else if (job.status === "done" && this._watching) {
             this._watching = false;
             this._showDone(job);
-        } else if (!initial) {
-            this._message(null);
+        } else {
+            if (!initial && !keepMessage) {
+                this._message(null);
+            }
+            if (initial && this._isStale(job)) {
+                this._refreshStalePost();
+            }
         }
     }
 

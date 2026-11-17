@@ -113,3 +113,173 @@ def test_update_tags_adds_and_removes_flags(monkeypatch):
 
     tj._update_tags(post, incomplete=False, uncertain=False)
     assert _names(post) == ["machine_translated", "reimu_hakurei"]
+
+
+# --- queue: per-user cap, recovery of jobs left "running" -------------------
+
+
+class _FakeSession:
+    """Stands in for db.session: .query(...).filter(...).all() returns
+    `rows`; add/flush/commit/rollback are counted."""
+
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+        self.added = []
+        self.commits = 0
+
+    def query(self, *_args):
+        return self
+
+    def filter(self, *_args):
+        return self
+
+    def all(self):
+        return self.rows
+
+    def first(self):
+        return None
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    def flush(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def commit(self):
+        self.commits += 1
+
+
+def _create_job_env(monkeypatch, active_jobs, limit=None):
+    session = _FakeSession()
+    monkeypatch.setattr(tj.db, "session", session)
+    monkeypatch.setenv("TRANSLATE_API_KEY", "k" * 20)
+    monkeypatch.setattr(tj, "_get_active_job", lambda post_id: None)
+    monkeypatch.setattr(tj, "_count_active_jobs", lambda user_id: active_jobs)
+    monkeypatch.setattr(
+        tj.config,
+        "config",
+        {} if limit is None
+        else {"translation": {"max_pending_jobs_per_user": limit}},
+    )
+    monkeypatch.setattr(
+        tj.model, "TranslationJob",
+        type("Job", (), {
+            "STATUS_PENDING": "pending",
+            "ACTIVE_STATUSES": ("pending", "running"),
+        }),
+    )
+    post = SimpleNamespace(post_id=7, type=tj.model.Post.TYPE_IMAGE, tags=[])
+    user = SimpleNamespace(user_id=3)
+    return session, post, user
+
+
+def test_job_cap_default_is_20(monkeypatch):
+    session, post, user = _create_job_env(monkeypatch, active_jobs=19)
+    job = tj.create_job(post, user)
+    assert session.added == [job] and job.status == "pending"
+
+    session, post, user = _create_job_env(monkeypatch, active_jobs=20)
+    try:
+        tj.create_job(post, user)
+        assert False, "expected TooManyTranslationJobsError"
+    except tj.TooManyTranslationJobsError as ex:
+        assert "20" in str(ex)
+    assert session.added == []
+
+
+def test_job_cap_is_configurable_and_can_be_disabled(monkeypatch):
+    session, post, user = _create_job_env(monkeypatch, 2, limit=2)
+    try:
+        tj.create_job(post, user)
+        assert False, "expected TooManyTranslationJobsError"
+    except tj.TooManyTranslationJobsError:
+        pass
+    session, post, user = _create_job_env(monkeypatch, 1, limit=2)
+    tj.create_job(post, user)
+    assert len(session.added) == 1
+    # 0 = no limit
+    session, post, user = _create_job_env(monkeypatch, 10 ** 6, limit=0)
+    tj.create_job(post, user)
+    assert len(session.added) == 1
+    # nonsense in config.yaml falls back to the default
+    session, post, user = _create_job_env(monkeypatch, 20, limit="lots")
+    try:
+        tj.create_job(post, user)
+        assert False, "expected TooManyTranslationJobsError"
+    except tj.TooManyTranslationJobsError:
+        pass
+
+
+def test_job_cap_is_a_validation_error():
+    # shown to the user as a 400 with its message
+    assert issubclass(tj.TooManyTranslationJobsError, tj.errors.ValidationError)
+
+
+def _running(job_id, attempts):
+    return SimpleNamespace(
+        job_id=job_id, attempts=attempts, status="running", error=None,
+        end_time=None,
+    )
+
+
+def test_recover_requeues_once_then_fails(monkeypatch):
+    first, second = _running(1, attempts=1), _running(2, attempts=2)
+    session = _FakeSession([first, second])
+    monkeypatch.setattr(tj.db, "session", session)
+    assert tj._recover_interrupted_jobs() == 2
+    assert first.status == "pending" and first.error is None
+    assert second.status == "failed" and second.end_time is not None
+    assert "already retried" in second.error
+    assert session.commits == 1
+
+
+def test_job_whose_failure_could_not_be_saved_is_recovered(monkeypatch):
+    """Database away when the job ends: _fail_job raises too, the row stays
+    "running". The next idle pass of the worker loop must pick it up instead
+    of leaving the post locked until a server restart."""
+    stuck = _running(5, attempts=1)
+    session = _FakeSession([stuck])
+    monkeypatch.setattr(tj.db, "session", session)
+    monkeypatch.setattr(tj.db.session, "remove", lambda: None, raising=False)
+    events = []
+
+    def process(job_id):
+        raise RuntimeError("translator result arrived")
+
+    def fail_job(job_id, message):
+        events.append("fail_job")
+        raise RuntimeError("database is away")
+
+    class Stop(BaseException):
+        pass
+
+    def claim():
+        events.append("claim:%s" % stuck.status)
+        if len([e for e in events if e.startswith("claim")]) == 1:
+            stuck.status = "running"
+            return stuck.job_id
+        raise Stop()
+
+    monkeypatch.setattr(tj, "_process_job", process)
+    monkeypatch.setattr(tj, "_fail_job", fail_job)
+    monkeypatch.setattr(tj, "_claim_next_job", claim)
+    monkeypatch.setattr(tj.time, "sleep", lambda _s: None)
+    stuck.status = "pending"
+    session.rows = []  # startup recovery: nothing to do
+    recover = tj._recover_interrupted_jobs
+
+    def recover_running():
+        session.rows = [stuck] if stuck.status == "running" else []
+        return recover()
+
+    monkeypatch.setattr(tj, "_recover_interrupted_jobs", recover_running)
+    try:
+        tj._worker_loop()
+    except Stop:
+        pass
+    # claimed, crashed, could not be failed ... and re-queued on the next pass
+    assert events == ["claim:pending", "fail_job", "claim:pending"]
+    assert stuck.status == "pending"

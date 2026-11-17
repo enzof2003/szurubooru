@@ -31,6 +31,12 @@ are refused with 409; removing the tag allows a new run, which replaces all
 
 Restart semantics: pending jobs just stay queued; a job found "running" at
 startup was interrupted, and is re-queued once (attempts < 2), else failed.
+The same recovery runs whenever the worker is between jobs: this process has
+the only worker, so a "running" row it isn't working on is one whose outcome
+could not be saved (e.g. the database was away when the job ended).
+
+Queue cap: a user may have at most translation.max_pending_jobs_per_user
+(config.yaml, default 20, 0 = no limit) pending/running jobs at a time.
 """
 
 import json
@@ -49,7 +55,7 @@ import sqlalchemy as sa
 import sqlalchemy.exc
 import sqlalchemy.orm.exc
 
-from szurubooru import db, errors, model, rest
+from szurubooru import config, db, errors, model, rest
 from szurubooru.func import (
     cache, ocr_garble, posts, snapshots, tags, users, versions,
 )
@@ -59,6 +65,7 @@ logger = logging.getLogger(__name__)
 TRANSLATABLE_TYPES = (model.Post.TYPE_IMAGE, model.Post.TYPE_ANIMATION)
 MAX_ATTEMPTS = 2  # first run + one retry after an interrupted run
 MERGE_RETRIES = 5  # post version conflicts
+DEFAULT_MAX_PENDING_JOBS_PER_USER = 20
 QUEUE_FULL_RETRIES = 40  # translator 503 "queue full", ~30 s apart
 MT_PREFIX_RE = re.compile(r"^\s*\[MT\??\]")  # [MT] or [MT?]
 # "[MT?]" is an untranslated placeholder, unless the uncertain marker
@@ -116,6 +123,10 @@ class PostAlreadyTranslatedError(errors.IntegrityError):
     pass
 
 
+class TooManyTranslationJobsError(errors.ValidationError):
+    pass
+
+
 class TranslationError(RuntimeError):
     """A job failure whose message is shown to the user as-is."""
 
@@ -146,6 +157,17 @@ def _use_llm() -> bool:
         "no",
         "off",
     )
+
+
+def max_pending_jobs_per_user() -> int:
+    """0 = no limit."""
+    value = (config.config.get("translation") or {}).get(
+        "max_pending_jobs_per_user", DEFAULT_MAX_PENDING_JOBS_PER_USER
+    )
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_PENDING_JOBS_PER_USER
 
 
 def _timeout() -> float:
@@ -180,6 +202,19 @@ def _get_active_job(post_id: int) -> Optional[model.TranslationJob]:
     )
 
 
+def _count_active_jobs(user_id: int) -> int:
+    return (
+        db.session.query(sa.func.count(model.TranslationJob.job_id))
+        .filter(model.TranslationJob.user_id == user_id)
+        .filter(
+            model.TranslationJob.status.in_(
+                model.TranslationJob.ACTIVE_STATUSES
+            )
+        )
+        .scalar()
+    ) or 0
+
+
 def create_job(
     post: model.Post, user: Optional[model.User]
 ) -> model.TranslationJob:
@@ -199,6 +234,17 @@ def create_job(
     if _get_active_job(post.post_id):
         raise TranslationJobAlreadyActiveError(
             "A translation is already in progress for this post."
+        )
+    limit = max_pending_jobs_per_user()
+    if (
+        limit
+        and user
+        and user.user_id
+        and _count_active_jobs(user.user_id) >= limit
+    ):
+        raise TooManyTranslationJobsError(
+            "You already have %d translations waiting; "
+            "please let some of them finish first." % limit
         )
     job = model.TranslationJob()
     job.post_id = post.post_id
@@ -502,7 +548,9 @@ def _get_job(job_id: int) -> Optional[model.TranslationJob]:
     return db.session.query(model.TranslationJob).get(job_id)
 
 
-def _recover_interrupted_jobs() -> None:
+def _recover_interrupted_jobs() -> int:
+    """Re-queue (once) or fail every job left "running". Only call while
+    the worker has no job in hand. Returns the number of jobs found."""
     jobs = (
         db.session.query(model.TranslationJob)
         .filter(
@@ -514,15 +562,19 @@ def _recover_interrupted_jobs() -> None:
     for job in jobs:
         if job.attempts >= MAX_ATTEMPTS:
             job.status = model.TranslationJob.STATUS_FAILED
-            job.error = "Interrupted by a server restart (already retried)."
+            job.error = (
+                "Interrupted (server restart or database error) "
+                "and already retried."
+            )
             job.end_time = datetime.utcnow()
             logger.warning("Translation job %d failed: interrupted twice",
                            job.job_id)
         else:
             job.status = model.TranslationJob.STATUS_PENDING
-            logger.warning("Translation job %d re-queued after restart",
-                           job.job_id)
+            logger.warning("Translation job %d re-queued after an "
+                           "interruption", job.job_id)
     db.session.commit()
+    return len(jobs)
 
 
 def _claim_next_job() -> Optional[int]:
@@ -678,6 +730,9 @@ def _worker_loop() -> None:
     while True:
         try:
             _wake.clear()
+            # No job in hand here, so nothing should be "running": such a
+            # row was left behind when its outcome couldn't be saved.
+            _recover_interrupted_jobs()
             job_id = _claim_next_job()
             if job_id is None:
                 _wake.wait(timeout=10)

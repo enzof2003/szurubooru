@@ -37,6 +37,11 @@ convert:
      # timeouts (600 s). Remuxes (H.264 4:2:0) are fast and never rejected.
      max_encode_seconds: 480
 
+# background "Translate" button (machine-translated post notes)
+translation:
+   # pending + running translation jobs one user may have at a time; 0 = no limit
+   max_pending_jobs_per_user: 20
+
 # allow posts to be uploaded even if some image processing errors occur
 allow_broken_uploads: false
 

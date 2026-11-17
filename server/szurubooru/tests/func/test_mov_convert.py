@@ -131,7 +131,7 @@ def test_update_post_content_rejects_unconvertible_mov(monkeypatch):
         config.config, "convert", {"gif": {}, "mov": {"to_mp4": True}}
     )
 
-    def fail(_self):
+    def fail(_self, **_kwargs):
         raise images.errors.ProcessingError("boom")
 
     monkeypatch.setattr(images.Image, "mov_to_mp4", fail)
@@ -162,7 +162,7 @@ def test_reencode_rejected_when_estimate_exceeds_limit(monkeypatch):
     monkeypatch.setattr(posts, "MOV_REENCODE_PIXEL_FRAMES_PER_SECOND", 1)
     mov = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"])
 
-    def must_not_encode(_self):
+    def must_not_encode(_self, **_kwargs):
         raise AssertionError("encoder should not run")
 
     monkeypatch.setattr(images.Image, "mov_to_mp4", must_not_encode)
@@ -215,3 +215,93 @@ def test_upload_api_converts_mov(monkeypatch):
     ctx = SimpleNamespace(user=None, get_file=lambda *a, **k: mov)
     assert upload_api.create_temporary_file(ctx) == {"token": "tok"}
     _assert_browser_mp4(saved["content"])
+
+
+# --- time limit and concurrency (the file's own metadata can't be trusted) --
+
+
+def test_execute_kills_ffmpeg_on_timeout():
+    mov = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"])
+    image = images.Image(mov)
+    started = []
+    real_popen = subprocess.Popen
+
+    def popen(cli, **kwargs):
+        proc = real_popen(["sleep", "30"], **kwargs)
+        started.append(proc)
+        return proc
+
+    images.subprocess.Popen = popen
+    try:
+        with pytest.raises(images.ProcessingTimeoutError):
+            image._execute(["-i", "{path}"], timeout=0.2)
+    finally:
+        images.subprocess.Popen = real_popen
+    assert len(started) == 1
+    assert started[0].returncode == -9  # killed and reaped, not left behind
+
+
+def test_conversion_gets_limit_plus_margin_as_timeout(monkeypatch):
+    _enable(monkeypatch, max_encode_seconds=100)
+    seen = []
+    monkeypatch.setattr(
+        images.Image,
+        "mov_to_mp4",
+        lambda _self, timeout=None: seen.append(timeout) or b"mp4",
+    )
+    for vcodec in (["-c:v", "mpeg4"], ["-c:v", "libx264", "-pix_fmt", "yuv420p"]):
+        mov = _make_mov(vcodec, ["-c:a", "aac"])
+        assert posts.convert_mov_to_mp4_if_enabled(mov) == b"mp4"
+    # re-encode and remux alike
+    assert seen == [100 + posts.MOV_ENCODE_TIMEOUT_MARGIN] * 2
+
+
+def test_unknown_duration_is_still_bounded_by_the_timeout(monkeypatch):
+    _enable(monkeypatch, max_encode_seconds=100)
+    monkeypatch.setattr(images.Image, "video_pixel_frames", lambda _self: None)
+
+    def too_slow(_self, timeout=None):
+        assert timeout
+        raise images.ProcessingTimeoutError("Processing took longer...")
+
+    monkeypatch.setattr(images.Image, "mov_to_mp4", too_slow)
+    mov = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"])
+    with pytest.raises(posts.InvalidPostContentError) as exc:
+        posts.convert_mov_to_mp4_if_enabled(mov)
+    assert "took too long" in str(exc.value)
+
+
+def test_reencode_refused_while_all_slots_are_busy(monkeypatch):
+    _enable(monkeypatch, max_encode_seconds=480)
+    monkeypatch.setattr(
+        images.Image, "mov_to_mp4", lambda _self, timeout=None: b"mp4"
+    )
+    reencode = _make_mov(["-c:v", "mpeg4"], ["-c:a", "aac"])
+    remux = _make_mov(
+        ["-c:v", "libx264", "-pix_fmt", "yuv420p"], ["-c:a", "aac"]
+    )
+    slots = posts._mov_reencode_slots
+    for _ in range(posts.MOV_MAX_CONCURRENT_REENCODES):
+        assert slots.acquire(blocking=False)
+    try:
+        with pytest.raises(posts.InvalidPostContentError) as exc:
+            posts.convert_mov_to_mp4_if_enabled(reencode)
+        assert "busy" in str(exc.value)
+        # remuxes are quick and never queue behind re-encodes
+        assert posts.convert_mov_to_mp4_if_enabled(remux) == b"mp4"
+    finally:
+        for _ in range(posts.MOV_MAX_CONCURRENT_REENCODES):
+            slots.release()
+    # the slot is given back after a conversion, also a failed one
+    assert posts.convert_mov_to_mp4_if_enabled(reencode) == b"mp4"
+
+    def boom(_self, timeout=None):
+        raise images.errors.ProcessingError("boom")
+
+    monkeypatch.setattr(images.Image, "mov_to_mp4", boom)
+    with pytest.raises(posts.InvalidPostContentError):
+        posts.convert_mov_to_mp4_if_enabled(reencode)
+    for _ in range(posts.MOV_MAX_CONCURRENT_REENCODES):
+        assert slots.acquire(blocking=False)
+    for _ in range(posts.MOV_MAX_CONCURRENT_REENCODES):
+        slots.release()

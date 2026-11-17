@@ -24,6 +24,10 @@ def convert_heif_to_png(content: bytes) -> bytes:
     return img_byte_arr.getvalue()
 
 
+class ProcessingTimeoutError(errors.ProcessingError):
+    pass
+
+
 class Image:
     def __init__(self, content: bytes) -> None:
         self.content = content
@@ -256,8 +260,11 @@ class Image:
             return None
         return pixels * fps * duration
 
-    def mov_to_mp4(self) -> bytes:
+    def mov_to_mp4(self, timeout: Optional[float] = None) -> bytes:
         """
+        `timeout` (seconds): ffmpeg is killed and ProcessingTimeoutError
+        raised when the conversion takes longer.
+
         Turn a QuickTime file into a browser-playable MP4.
         H.264 4:2:0 video is copied as-is (remux); anything else is
         re-encoded with libx264. AAC audio is copied, other audio is
@@ -304,7 +311,7 @@ class Image:
                 audio,
                 "copy" if copy_audio else "re-encode",
             )
-            self._execute(args)
+            self._execute(args, timeout=timeout)
             with open(mp4_temp_path, "rb") as mp4_temp:
                 return mp4_temp.read()
 
@@ -363,6 +370,7 @@ class Image:
         program: str = "ffmpeg",
         ignore_error_if_data: bool = False,
         get_logs: bool = False,
+        timeout: Optional[float] = None,
     ) -> bytes:
         mime_type = mime.get_mime_type(self.content)
         if mime.is_heif(mime_type):
@@ -382,7 +390,22 @@ class Image:
                 stdin=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
-            out, err = proc.communicate()
+            try:
+                out, err = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # the file's own metadata can't be trusted to bound the
+                # work: stop ffmpeg rather than hold a request thread
+                proc.kill()
+                proc.communicate()
+                logger.warning(
+                    "Killed %s after %d s (cli=%r)",
+                    program,
+                    timeout,
+                    " ".join(shlex.quote(arg) for arg in cli),
+                )
+                raise ProcessingTimeoutError(
+                    "Processing took longer than %d seconds." % timeout
+                )
             if proc.returncode != 0:
                 logger.warning(
                     "Failed to execute ffmpeg command (cli=%r, err=%r)",

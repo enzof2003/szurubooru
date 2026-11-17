@@ -1,6 +1,7 @@
 import hmac
 import logging
 import math
+import threading
 from collections import namedtuple
 from datetime import datetime
 from itertools import tee, chain, islice
@@ -619,6 +620,13 @@ def update_all_md5_checksums() -> None:
 # libx264 -preset veryfast throughput measured on this server (6 cores):
 # a 60 s 1080p60 HEVC clip (1920*1080*3600 px-frames) re-encoded in 54.2 s.
 MOV_REENCODE_PIXEL_FRAMES_PER_SECOND = 1920 * 1080 * 3600 / 54.2
+# ffmpeg is killed this long after max_encode_seconds: the estimate comes
+# from the file's own header, which can be wrong or missing. Limit + margin
+# must stay below the proxy timeouts (600 s).
+MOV_ENCODE_TIMEOUT_MARGIN = 60
+# Each re-encode holds a request thread and most of the CPU for minutes.
+MOV_MAX_CONCURRENT_REENCODES = 2
+_mov_reencode_slots = threading.BoundedSemaphore(MOV_MAX_CONCURRENT_REENCODES)
 
 
 def convert_mov_to_mp4_if_enabled(content: bytes) -> bytes:
@@ -633,10 +641,13 @@ def convert_mov_to_mp4_if_enabled(content: bytes) -> bytes:
         return content
     if mime.get_mime_type(content) != "video/quicktime":
         return content
+    max_seconds = mov_config.get("max_encode_seconds", 480)
+    timeout = max_seconds + MOV_ENCODE_TIMEOUT_MARGIN if max_seconds else None
+    reencode = False
     try:
         image = images.Image(content)
-        if image.mov_needs_video_reencode():
-            max_seconds = mov_config.get("max_encode_seconds", 480)
+        reencode = image.mov_needs_video_reencode()
+        if reencode:
             pixel_frames = image.video_pixel_frames()
             if pixel_frames is not None:
                 estimate = pixel_frames / MOV_REENCODE_PIXEL_FRAMES_PER_SECOND
@@ -647,7 +658,23 @@ def convert_mov_to_mp4_if_enabled(content: bytes) -> bytes:
                         "Please convert it to MP4 (H.264) first."
                         % (math.ceil(estimate / 60), max_seconds // 60)
                     )
-        return image.mov_to_mp4()
+        if not reencode:
+            return image.mov_to_mp4(timeout=timeout)
+        if not _mov_reencode_slots.acquire(blocking=False):
+            raise InvalidPostContentError(
+                "The server is busy converting other videos. "
+                "Please try again in a few minutes."
+            )
+        try:
+            return image.mov_to_mp4(timeout=timeout)
+        finally:
+            _mov_reencode_slots.release()
+    except images.ProcessingTimeoutError as ex:
+        logger.warning("MOV conversion timed out: %s", ex)
+        raise InvalidPostContentError(
+            "This MOV video took too long to convert for browser playback. "
+            "Please convert it to MP4 (H.264) first."
+        )
     except errors.ProcessingError as ex:
         logger.exception(ex)
         raise InvalidPostContentError(

@@ -41,7 +41,9 @@ import onnxruntime as ort
 import requests
 from PIL import Image, ImageFilter, ImageOps
 
-Image.MAX_IMAGE_PIXELS = 80_000_000  # ~9000x9000; refuse decompression bombs beyond that
+MAX_PIXELS = 80_000_000  # ~9000x9000; larger images are refused (load_image)
+# Pillow itself only warns up to twice its limit, and raises above that: a backstop.
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 
 # A block is worth translating only if it has an actual kana/kanji LETTER. Marks that are
 # punctuation on their own (・ ー ゛ ゜ ヽ ゝ 々, halfwidth ･ ｰ ﾞ ﾟ) must not count, or a wordless
@@ -65,8 +67,16 @@ HEARTS = frozenset("♡♥❤💕💗💖💓")
 # --------------------------------------------------------------------------- helpers
 
 
+class ImageTooLarge(ValueError):
+    pass
+
+
 def load_image(data: bytes) -> Image.Image:
     img = Image.open(io.BytesIO(data))
+    # The header is enough for the size: checked before any pixel is decoded (a 40 MB PNG can
+    # hold far more than the detector's float arrays have memory for).
+    if img.width * img.height > MAX_PIXELS:
+        raise ImageTooLarge(f"image is {img.width}x{img.height} px; the limit is {MAX_PIXELS // 10 ** 6} megapixels")
     img = ImageOps.exif_transpose(img)
     return img.convert("RGB")
 
@@ -275,11 +285,15 @@ class OcrServer:
     def __init__(self, s: config.Settings):
         self.s = s
         self.proc: subprocess.Popen | None = None
+        self._log = None
+        self._atexit = False
         self.api_key = secrets.token_urlsafe(24)  # only this process can talk to its OCR server
         self.base_url = f"http://127.0.0.1:{s.ocr_port}/v1"
 
     def start(self) -> None:
+        """Start (or restart after a crash) the OCR server. On failure nothing is left running."""
         s = self.s
+        self.stop()  # a restart: reap the dead process and close its log handle
         for p in (s.ocr_bin, s.ocr_model, s.ocr_mmproj):
             if not p.exists():
                 raise FileNotFoundError(p)
@@ -301,12 +315,23 @@ class OcrServer:
             raise RuntimeError(f"port {s.ocr_port} is already in use (left-over OCR llama-server?)")
         log = (config.ROOT / "logs").joinpath("ocr_server.log")
         log.parent.mkdir(exist_ok=True)
-        self._log = log.open("wb")
+        self._log = log.open("ab")  # appended: a restart must not erase why the last one died
+        self._log.write(f"\n===== OCR server start {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n".encode())
+        self._log.flush()
         # Tied to this process: the OS kills it if the service dies without running stop().
         self.proc = childproc.spawn_tied(cmd, stdout=self._log, stderr=subprocess.STDOUT)
-        atexit.register(self.stop)
+        if not self._atexit:
+            atexit.register(self.stop)
+            self._atexit = True
         childproc.install_exit_on_signals()
-        deadline = time.time() + 180
+        try:
+            self._wait_ready(health, log)
+        except BaseException:
+            self.stop()  # never leave a half-started server behind: the next request starts afresh
+            raise
+
+    def _wait_ready(self, health: str, log: Path, timeout: float = 180) -> None:
+        deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
                 raise RuntimeError(f"OCR server exited with code {self.proc.returncode}; see {log}")
@@ -316,7 +341,7 @@ class OcrServer:
             except requests.RequestException:
                 pass
             time.sleep(0.5)
-        raise RuntimeError("OCR server did not become ready in 180 s")
+        raise RuntimeError(f"OCR server did not become ready in {timeout:.0f} s")
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -329,6 +354,7 @@ class OcrServer:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait(10)
+        self.proc = None
         if getattr(self, "_log", None):
             self._log.close()
             self._log = None
@@ -1117,7 +1143,8 @@ class Pipeline:
         """A colour group whose OCR can't be used is read again together with its neighbouring
         group of the same block (the next one in reading order, else the previous): correct words
         in the wrong colour beat wrong words in the right colour.
-        - looping read (after the half-size retry): the pair becomes one note.
+        - looping read (after the half-size retry): the pair becomes one note; if the pair's
+          read loops as well, that note is marked `uncertain`.
         - suspect lone column (_suspect): when the neighbour's own read is found exactly at the
           start or end of the pair's read, the rest is this column's text and both notes keep
           their colours ("merged_cut"); otherwise the pair becomes one note ("merged").
@@ -1156,6 +1183,8 @@ class Pipeline:
             self._ocr_note(img, merged)
             if not suspect:
                 merged["merged_on_loop"] = True
+                if merged.get("ocr_looped"):  # the pair's read looped too: nothing left to try
+                    merged["uncertain"] = True
                 out[a:b + 1] = [merged]
                 i = a + 1
                 continue
@@ -1211,7 +1240,7 @@ class Pipeline:
                 if not looped(retry, usage):
                     text, n["ocr_usage"] = retry, usage
                 else:
-                    n["ocr_looped"] = True  # merged with a neighbouring group (_merge_looping_groups)
+                    n["ocr_looped"] = True  # merged with a neighbouring group (_fallback_groups)
             elif n.get("crop") and n["vertical"] and "ocr_retry" not in n and short_read(text, n["parts"]):
                 # A lone narrow column is read unreliably: on 25694 the 62x740 crop of
                 # （でっか…なんなのよコイツら…） came back as （…ひゃっ）, and moving the crop by one

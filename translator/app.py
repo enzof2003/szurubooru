@@ -24,7 +24,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
-from pipeline import LlmError, Pipeline, clean_context_tags, load_image
+from pipeline import ImageTooLarge, LlmError, Pipeline, clean_context_tags, load_image
 
 log = logging.getLogger("mtl")
 settings = config.load()
@@ -154,6 +154,8 @@ async def translate(request: Request, translate: bool = Query(True, description=
         raise HTTPException(413, "image too large")
     try:
         img = load_image(data)
+    except ImageTooLarge as e:
+        raise HTTPException(413, str(e))
     except Exception as e:  # PIL raises many types
         raise HTTPException(400, f"not a readable image: {e}")
 

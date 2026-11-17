@@ -85,8 +85,20 @@ class PoolGalleryView extends events.EventTarget {
     }
 
     _setupKeyboardNavigation() {
-        document.addEventListener("keydown", (e) => {
-            const key = e.key.toLowerCase();
+        const keyHandler = (e) => {
+            // typing (search box, any form): not ours
+            const target = e.target;
+            if (
+                target &&
+                target.nodeName &&
+                (["textarea", "input", "select"].includes(
+                    target.nodeName.toLowerCase()
+                ) ||
+                    target.isContentEditable)
+            ) {
+                return;
+            }
+            const key = (e.key || "").toLowerCase();
 
             // Only prevent default for arrow keys
             if (key === "arrowdown" || key === "arrowup") {
@@ -129,7 +141,16 @@ class PoolGalleryView extends events.EventTarget {
                     });
                 }
             }
-        });
+        };
+        document.addEventListener("keydown", keyHandler);
+        // The listener must go with the gallery: left behind, it would keep
+        // swallowing the arrow keys on every other page.
+        const galleryNode = this._hostNode.querySelector(".pool-gallery");
+        if (galleryNode) {
+            views.monitorNodeRemoval(galleryNode, () => {
+                document.removeEventListener("keydown", keyHandler);
+            });
+        }
     }
 
 

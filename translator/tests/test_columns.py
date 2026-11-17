@@ -273,9 +273,18 @@ class LoopFallbackTest(unittest.TestCase):
         self.assertTrue(all(n["merged_on_loop"] for n in out))
         self.assertEqual([len(n["parts"]) for n in out], [3, 3])
         self.assertFalse(any(n.get("ocr_looped") for n in out))
+        self.assertFalse(any(n.get("uncertain") for n in out))  # the pairs read fine
         xs = [n["text_box"][0] for n in out]
         self.assertEqual(xs, sorted(xs, reverse=True))  # reading order kept
         self.assertEqual([is_purple(n["color"]) for n in out], [False, False])  # more lines: green
+
+    def test_merge_that_loops_too_is_uncertain(self):
+        img, notes, pl = self.notes()
+        pl.ocr = LoopOcr(loop_below=10 ** 6, half_ok=False)  # every read loops, the pairs' too
+        out = self.run_all(pl, img, notes)
+        merged = [n for n in out if n.get("merged_on_loop")]
+        self.assertTrue(merged)
+        self.assertTrue(all(n.get("ocr_looped") and n.get("uncertain") for n in merged))
 
     def test_unsplit_note_never_retried(self):
         img = block(14213)
