@@ -90,7 +90,9 @@ def fetch_url(url: str) -> bytes:
             raise HTTPException(400, f"cannot resolve {host!r}")
         for a in addrs:
             ip = ipaddress.ip_address(a.split("%")[0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            # not is_global also covers what is_private leaves out: 100.64.0.0/10 (CGNAT, Tailscale)
+            if (not ip.is_global or ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                    or ip.is_multicast):
                 raise HTTPException(403, f"{host!r} resolves to a non-public address; add it to ALLOWED_URL_HOSTS")
     try:
         with requests.get(url, stream=True, timeout=(10, 60), allow_redirects=False) as r:
@@ -127,16 +129,16 @@ async def translate(request: Request, translate: bool = Query(True, description=
     ctype = request.headers.get("content-type", "")
     # Optional post tags (image context for the LLM): {"character": [...], "series": [...], "artist": [...]}
     if ctype.startswith("multipart/form-data"):
-        form = await request.form()
-        raw = form.get("context_tags")
-        try:
-            context_tags = _context_tags(json.loads(raw) if isinstance(raw, str) and raw else None)
-        except ValueError:
-            raise HTTPException(400, "context_tags must be a JSON object")
-        upload = form.get("image") or form.get("file")
-        if upload is None or not hasattr(upload, "read"):
-            raise HTTPException(400, "multipart field 'image' is required")
-        data = await upload.read()
+        async with request.form() as form:  # closes the uploads' spooled temp files
+            raw = form.get("context_tags")
+            try:
+                context_tags = _context_tags(json.loads(raw) if isinstance(raw, str) and raw else None)
+            except ValueError:
+                raise HTTPException(400, "context_tags must be a JSON object")
+            upload = form.get("image") or form.get("file")
+            if upload is None or not hasattr(upload, "read"):
+                raise HTTPException(400, "multipart field 'image' is required")
+            data = await upload.read()
     elif ctype.startswith("application/json"):
         try:
             payload = await request.json()

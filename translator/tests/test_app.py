@@ -196,6 +196,18 @@ class HealthTest(AppCase):
 
 
 class RequestTest(AppCase):
+    def test_uploads_are_closed(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            headers, body = multipart({"image": png(), "context_tags": "{}"})
+            self.assertEqual(run("POST", "/translate", headers, body)[0], 200)
+            headers, body = multipart({"other": png()})  # refused requests too
+            self.assertEqual(run("POST", "/translate", headers, body)[0], 400)
+            import gc
+            gc.collect()
+        self.assertEqual([str(w.message) for w in caught if issubclass(w.category, ResourceWarning)], [])
+
     def test_unsupported_content_type(self):
         status, _, _ = run("POST", "/translate", {"content-type": "text/plain", **AUTH}, b"x")
         self.assertEqual(status, 415)
@@ -350,9 +362,9 @@ class FetchUrlTest(AppCase):
 
         self.refused(400, "http://nope.invalid/x.png", hosts=(), dns=gaierror)
 
-    @unittest.expectedFailure  # code_review.md N10 (open): CGNAT/Tailscale range is not refused
-    def test_no_allow_list_refuses_cgnat_addresses(self):
-        self.refused(403, "http://some.host/x.png", hosts=(), dns=addrinfo("100.100.1.1"))
+    def test_no_allow_list_refuses_cgnat_and_multicast_addresses(self):
+        for ip in ("100.100.1.1", "100.64.0.1", "224.0.0.1", "ff02::1", "192.0.2.1", "2001:db8::1"):
+            self.refused(403, "http://some.host/x.png", hosts=(), dns=addrinfo(ip))
 
     def test_redirects_and_errors_are_not_followed(self):
         for status in (301, 302, 307, 403, 404, 500):
