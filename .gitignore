@@ -14,3 +14,8 @@ server/**/bin/
 server/**/pyvenv.cfg
 __pycache__/
 server/venv/
+
+# Local working notes: they quote post content, never publish
+/translation_errors.md
+/translation_audit.md
+/code_review.md
