@@ -305,3 +305,62 @@ def test_reencode_refused_while_all_slots_are_busy(monkeypatch):
         assert slots.acquire(blocking=False)
     for _ in range(posts.MOV_MAX_CONCURRENT_REENCODES):
         slots.release()
+
+
+# --- how often the upload is written to a temporary file -------------------
+
+
+@pytest.mark.parametrize(
+    "vcodec_args,expected",
+    [
+        (["-c:v", "libx264", "-pix_fmt", "yuv420p"], "h264/yuv420p"),
+        (["-c:v", "mpeg4"], "mpeg4/yuv420p"),
+        (["-c:v", "libx264", "-pix_fmt", "yuv444p"], "h264/yuv444p"),
+    ],
+)
+def test_video_codec_from_loaded_info_matches_a_fresh_probe(
+    vcodec_args, expected
+):
+    image = images.Image(_make_mov(vcodec_args, ["-c:a", "aac"]))
+    assert image._video_codec() == expected
+    assert image._video_codec() == image._first_stream_codec("v:0")
+
+
+def test_video_codec_is_the_first_video_stream_even_after_audio():
+    # audio stream first in the file: info lists video streams only
+    with util.create_temp_file_path(suffix=".mov") as path:
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y"]
+            + ["-f", "lavfi", "-i", "sine=duration=1"]
+            + ["-f", "lavfi", "-i", "testsrc=d=1:s=64x48:r=10"]
+            + ["-map", "0:a", "-map", "1:v", "-c:v", "mpeg4", "-c:a", "aac"]
+            + ["-f", "mov", path],
+            check=True,
+        )
+        with open(path, "rb") as handle:
+            mov = handle.read()
+    image = images.Image(mov)
+    assert image._video_codec() == image._first_stream_codec("v:0")
+    assert image._video_codec().startswith("mpeg4/")
+
+
+@pytest.mark.parametrize(
+    "vcodec_args", [["-c:v", "libx264", "-pix_fmt", "yuv420p"], ["-c:v", "mpeg4"]]
+)
+def test_conversion_writes_the_upload_three_times_not_five(
+    monkeypatch, vcodec_args
+):
+    """Every ffprobe/ffmpeg run writes the whole upload to a temp file: one
+    probe when the file is loaded, one for the audio codec, one encode."""
+    _enable(monkeypatch)
+    mov = _make_mov(vcodec_args, ["-c:a", "aac"])
+    runs = []
+    real_execute = images.Image._execute
+
+    def counting(self, cli, program="ffmpeg", **kwargs):
+        runs.append(program)
+        return real_execute(self, cli, program=program, **kwargs)
+
+    monkeypatch.setattr(images.Image, "_execute", counting)
+    _assert_browser_mp4(posts.convert_mov_to_mp4_if_enabled(mov))
+    assert runs == ["ffprobe", "ffprobe", "ffmpeg"]

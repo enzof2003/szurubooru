@@ -385,3 +385,80 @@ class PrepareTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@needs_fixtures
+class ReuseTest(unittest.TestCase):
+    """The colour analysis hands its column cuts and outline lines on instead of the pipeline
+    finding them a second time; the results must be the ones a fresh call gives."""
+
+    def test_info_columns_are_what_columns_returns(self):
+        for pid in (14213, 25687):
+            img = block(pid)
+            box = [0, 0, img.width, img.height]
+            _, info = colorsplit.analyse_block_info(img, box)
+            self.assertIn("columns", info)
+            self.assertEqual(info["columns"], colorsplit.columns(img, box), pid)
+            # a float box (as the detector gives) lands on the same pixels
+            fbox = [0.4, 0.7, img.width - 0.2, img.height - 0.6]
+            _, info = colorsplit.analyse_block_info(img, fbox)
+            self.assertEqual(info["columns"], colorsplit.columns(img, fbox), pid)
+
+    def test_no_columns_entry_when_the_analysis_stops_early(self):
+        img = Image.new("RGB", (6, 6), "white")
+        _, info = colorsplit.analyse_block_info(img, [0, 0, 6, 6])  # too small
+        self.assertNotIn("columns", info)
+        img = Image.new("RGB", (200, 400), "white")
+        _, info = colorsplit.analyse_block_info(img, [0, 0, 200, 400])  # no lettering at all
+        self.assertNotIn("columns", info)
+
+    def test_unsplit_note_carries_the_columns_and_ocr_does_not_look_again(self):
+        img = block(14213)
+        box = [0.0, 0.0, float(img.width), float(img.height)]
+        notes = pipeline.split_notes_by_colour(img, [{"box": box, "text_box": box, "parts": [box], "kind": "text"}])
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["columns"], colorsplit.columns(img, box))
+        fresh = dict(notes[0])
+        del fresh["columns"]
+        orig_crop = img.crop
+
+        def crop(box):
+            c = orig_crop(box)
+            c.info["x"] = (box[0], box[2])
+            return c
+
+        img.crop = crop
+
+        def read(note, patched):
+            pl = object.__new__(pipeline.Pipeline)
+            pl.s = SimpleNamespace(ocr_pad=0.01, ocr_columns_per_call=3, ocr_column_split_min=5)
+            pl.ocr = FakeOcr(notes[0]["columns"])
+            if patched:
+                orig = colorsplit.columns
+                colorsplit.columns = lambda *a, **k: self.fail("columns() called again")
+                try:
+                    pl._ocr_note(img, note)
+                finally:
+                    colorsplit.columns = orig
+            else:
+                pl._ocr_note(img, note)
+            return note["source"], note.get("ocr_chunks"), pl.ocr.calls
+
+        self.assertEqual(read(dict(notes[0]), True), read(fresh, False))
+
+    def test_outline_lines_found_once_per_axis(self):
+        img = block(25687)
+        calls = []
+        orig = colorsplit._outlined_lines
+
+        def counting(outlined, mask, vertical, *a, **k):
+            calls.append(vertical)
+            return orig(outlined, mask, vertical, *a, **k)
+
+        colorsplit._outlined_lines = counting
+        try:
+            colorsplit.analyse_block_info(img, [0, 0, img.width, img.height])
+        finally:
+            colorsplit._outlined_lines = orig
+        self.assertLessEqual(len(calls), 2)
+        self.assertEqual(len(calls), len(set(calls)))

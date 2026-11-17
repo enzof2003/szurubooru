@@ -332,12 +332,14 @@ def _outlined_lines(outlined: np.ndarray, mask: np.ndarray, vertical: bool,
 
 def _analyse(a: np.ndarray, neutral: np.ndarray, mask: np.ndarray, vertical: bool, x1: int, y1: int,
              cols: list[tuple[int, int]] | None = None, outlined: np.ndarray | None = None,
-             bg: np.ndarray | None = None) -> list[_Line]:
+             bg: np.ndarray | None = None, dark: list[tuple[int, int]] | None = None) -> list[_Line]:
     """Tinted lines from `mask` and `outlined` (with their colours) plus untinted lines from
     `neutral`. `cols`: column cuts from columns() (crop px), used instead of the fixed-threshold
     line finder for vertical text when they find more columns (it merges columns whose gaps catch
-    background tint: post 25687, two speakers' columns read as one mixed column, so no split)."""
-    dark = _outlined_lines(outlined, mask, vertical, a, bg) if outlined is not None and outlined.any() else []
+    background tint: post 25687, two speakers' columns read as one mixed column, so no split).
+    `dark`: the dark-outlined lines for this axis when the caller already has them (_split)."""
+    if dark is None:
+        dark = _outlined_lines(outlined, mask, vertical, a, bg) if outlined is not None and outlined.any() else []
     other = outlined if dark else None  # no dark-outlined line: exactly the white-paired analysis
     if dark:
         # Dark-outlined lettering over a white background has its fill within PAIR_RADIUS of
@@ -437,7 +439,8 @@ def analyse_block(img: Image.Image, box: list[float]) -> tuple[list[Group] | Non
 def analyse_block_info(img: Image.Image, box: list[float]) -> tuple[list[Group] | None, dict]:
     """(colour groups or None, info). info: "dominant" (see analyse_block); "lost_ink", the share
     of the block's lettering outside every group crop; "refused" = "lost_ink" when that made the
-    split be dropped."""
+    split be dropped; "columns", the result of columns(img, box) when the analysis got that far
+    (absent otherwise)."""
     info: dict = {}
     return _split(img, box, info), info
 
@@ -450,16 +453,20 @@ def _split(img: Image.Image, box: list[float], info: dict) -> list[Group] | None
     a = np.asarray(img.crop((x1, y1, x2, y2)).convert("RGB")).astype(np.int16)
     mask, outlined, neutral = lettering_masks(a)
     bg = _background_lab(a, mask | outlined | neutral)
-    if outlined.any() and not (_outlined_lines(outlined, mask, True, a, bg) or _outlined_lines(outlined, mask, False, a, bg)):
+    # Dark-outlined lines per axis, found once here and handed to _analyse (same arguments).
+    dark = {v: _outlined_lines(outlined, mask, v, a, bg) for v in (True, False)} if outlined.any() \
+        else {True: [], False: []}
+    if outlined.any() and not (dark[True] or dark[False]):
         outlined = np.zeros_like(outlined)  # no dark-outlined line: exactly the white-paired analysis
     if (mask | outlined).mean() < 0.005:
         return None
     cols = columns(img, [x1, y1, x2, y2])  # the same column cuts the OCR chunks use
+    info["columns"] = cols  # page px, as columns() returns them: reused for the OCR chunks of an unsplit block
     cols = sorted((lo - x1, hi - x1) for lo, hi in cols) if cols else None
 
     analysed = {}
     for vertical in (True, False):
-        lines = _analyse(a, neutral, mask, vertical, x1, y1, cols, outlined, bg)
+        lines = _analyse(a, neutral, mask, vertical, x1, y1, cols, outlined, bg, dark[vertical])
         total = sum(l.n for l in lines) or 1
         analysed[vertical] = (sum(l.purity * l.n for l in lines) / total, lines)
     # Vertical (Japanese default) unless its columns are clearly mixed: rows can look "purer" when a

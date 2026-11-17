@@ -745,6 +745,8 @@ def split_notes_by_colour(img: Image.Image, notes: list[dict]) -> list[dict]:
         groups, info = colorsplit.analyse_block_info(img, n["text_box"])
         dominant = info.get("dominant")
         if not groups:
+            if "columns" in info:  # found by the colour analysis: _ocr_note needn't look again
+                n = {**n, "columns": info["columns"]}
             if info.get("refused"):  # a split that would lose lettering: the block is read whole
                 n = {**n, "split_refused": info["refused"]}
             if dominant:  # one clear lettering colour: the note still gets it (and a speaker letter)
@@ -1223,8 +1225,9 @@ class Pipeline:
         cols = None
         if self.s.ocr_columns_per_call > 0:
             # a colour group's columns are colorsplit's lines (from the same columns() cuts)
+            # an unsplit block: the columns colorsplit already found for this text_box, if it did
             cols = (_group_columns(n["parts"]) if n["vertical"] else None) if n.get("crop") \
-                else colorsplit.columns(img, n["text_box"])
+                else n["columns"] if "columns" in n else colorsplit.columns(img, n["text_box"])
             if cols and len(cols) < self.s.ocr_column_split_min:
                 cols = None
         if not cols:

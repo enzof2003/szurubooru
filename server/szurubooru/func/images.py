@@ -235,10 +235,20 @@ class Image:
             streams[0].get("pix_fmt", ""),
         )
 
+    def _video_codec(self) -> str:
+        """
+        "codec/pix_fmt" of the first video stream, from the probe already
+        done when the file was loaded (self.info lists the video streams
+        only, in order, so [0] is v:0). Every extra ffprobe run would write
+        the whole upload to a temporary file again.
+        """
+        stream = self.info["streams"][0]
+        return "%s/%s" % (stream.get("codec_name"), stream.get("pix_fmt", ""))
+
     def mov_needs_video_reencode(self, video: Optional[str] = None) -> bool:
         """Only H.264 4:2:0 plays everywhere; anything else is re-encoded."""
         if video is None:
-            video = self._first_stream_codec("v:0")
+            video = self._video_codec()
         return video != "h264/yuv420p"
 
     def video_pixel_frames(self) -> Optional[float]:
@@ -271,7 +281,7 @@ class Image:
         re-encoded to AAC. Only the first video and audio streams are
         kept; QuickTime timecode/data tracks are dropped.
         """
-        video = self._first_stream_codec("v:0")
+        video = self._video_codec()
         audio = self._first_stream_codec("a:0")
         copy_video = not self.mov_needs_video_reencode(video)
         copy_audio = audio is None or audio.startswith("aac/")

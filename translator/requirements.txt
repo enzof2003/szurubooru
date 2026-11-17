@@ -1,9 +1,13 @@
 # Runtime (the service needs no PyTorch: detection = ONNX Runtime, OCR = llama-server)
-fastapi
-uvicorn[standard]
-python-multipart
-python-dotenv
-requests
-pillow
-numpy
-onnxruntime
+# Exact versions of the deployed image (2026-11-17, Python 3.11): a newer Pillow, numpy or
+# onnxruntime can shift resize and detection results under the tuned thresholds. Everything
+# they pull in is pinned in constraints.txt. To upgrade: change the pins, rebuild, run the
+# tests and compare the check posts' OCR output before deploying.
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+python-dotenv==1.2.4
+requests==2.34.2
+pillow==13.0.0
+numpy==2.4.6
+onnxruntime==1.31.1

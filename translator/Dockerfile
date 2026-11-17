@@ -34,8 +34,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     HOST=0.0.0.0 PORT=8765
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY requirements.txt constraints.txt ./
+RUN pip install -r requirements.txt -c constraints.txt
 
 COPY --from=llama /src/build/bin/llama-server /app/tools/llama.cpp-cpu/llama-server
 COPY *.py .env.example ./
